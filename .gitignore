@@ -1,6 +1,7 @@
 # ASP.NET
 */bin/
 */obj/
+.vs/
 
 # React
 finance-tracker-frontend/node_modules/
