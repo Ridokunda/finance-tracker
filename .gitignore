@@ -1,0 +1,15 @@
+# ASP.NET
+*/bin/
+*/obj/
+
+# React
+finance-tracker-frontend/node_modules/
+
+# OS
+.DS_Store
+
+# Logs
+*.log
+
+# Environment Variables
+*.env
