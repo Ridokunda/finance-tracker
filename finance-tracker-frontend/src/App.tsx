@@ -1,20 +1,28 @@
-import { useEffect, useState } from "react";
+import { BrowserRouter as Router, Routes, Route } from "react-router-dom";
+import Login from "./pages/Login";
+import Signup from "./pages/Signup";
+import Dashboard from "./pages/Dashboard";
+import ProtectedRoute from "./components/ProtectedRoute";
 
 function App() {
-  const [message, setMessage] = useState("");
-
-  useEffect(() => {
-    fetch("/api/test")
-      .then(res => res.json())
-      .then(data => setMessage(data.message))
-      .catch(() => setMessage("Error connecting to API"));
-  }, []);
-
   return (
-    <div style={{ padding: "2rem" }}>
-      <h1>Frontend</h1>
-      <p>API says: {message}</p>
-    </div>
+    <Router>
+      <Routes>
+        {/* Public routes */}
+        <Route path="/login" element={<Login />} />
+        <Route path="/signup" element={<Signup />} />
+
+        {/* Protected route */}
+        <Route
+          path="/"
+          element={
+            <ProtectedRoute>
+              <Dashboard />
+            </ProtectedRoute>
+          }
+        />
+      </Routes>
+    </Router>
   );
 }
 
