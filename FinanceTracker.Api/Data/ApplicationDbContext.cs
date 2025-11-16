@@ -9,6 +9,7 @@ namespace FinanceTracker.Api.Data
             : base(options) { }
 
         public DbSet<AppUser> Users { get; set; }
+        public DbSet<RevokedToken> RevokedTokens { get; set; }
     }
 }
 

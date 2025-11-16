@@ -36,6 +36,29 @@ builder.Services.AddAuthentication(options =>
         ValidAudience = jwtSettings["Audience"],
         IssuerSigningKey = new SymmetricSecurityKey(key)
     };
+
+    // Reject tokens that have been revoked (server-side logout)
+    options.Events = new JwtBearerEvents
+    {
+        OnTokenValidated = context =>
+        {
+            var db = context.HttpContext.RequestServices.GetRequiredService<ApplicationDbContext>();
+
+            var authHeader = context.Request.Headers["Authorization"].FirstOrDefault();
+            var token = authHeader?.Split(' ').Last();
+
+            if (!string.IsNullOrEmpty(token))
+            {
+                var revoked = db.RevokedTokens.SingleOrDefault(rt => rt.Token == token);
+                if (revoked != null)
+                {
+                    context.Fail("Token has been revoked.");
+                }
+            }
+
+            return Task.CompletedTask;
+        }
+    };
 });
 
 

@@ -1,5 +1,6 @@
 ﻿using FinanceTracker.Api.Data;
 using FinanceTracker.Api.Models;
+using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Mvc;
 using Microsoft.IdentityModel.Tokens;
 using System.IdentityModel.Tokens.Jwt;
@@ -45,7 +46,49 @@ namespace FinanceTracker.Api.Controllers
             var token = GenerateToken(user);
             return Ok(new { token });
         }
+        // POST: api/auth/logout
+        // Server-side invalidation: stores the bearer token in RevokedTokens table.
+        [Authorize]
+        [HttpPost("logout")]
+        public IActionResult Logout()
+        {
+            var authHeader = Request.Headers["Authorization"].FirstOrDefault();
+            if (string.IsNullOrEmpty(authHeader) || !authHeader.StartsWith("Bearer "))
+                return BadRequest("No bearer token found.");
 
+            var token = authHeader.Substring("Bearer ".Length).Trim();
+
+            var handler = new JwtSecurityTokenHandler();
+            if (!handler.CanReadToken(token))
+                return BadRequest("Invalid token.");
+
+            var jwt = handler.ReadJwtToken(token);
+
+            // Determine expiry from token (exp is seconds since epoch)
+            DateTime expiresAt = DateTime.UtcNow;
+            var expClaim = jwt.Claims.FirstOrDefault(c => c.Type == JwtRegisteredClaimNames.Exp)?.Value;
+            if (long.TryParse(expClaim, out var expSeconds))
+            {
+                expiresAt = DateTimeOffset.FromUnixTimeSeconds(expSeconds).UtcDateTime;
+            }
+            else
+            {
+                // fallback: use a small TTL to avoid infinite blacklist entries
+                expiresAt = DateTime.UtcNow.AddHours(1);
+            }
+
+            if (!_db.RevokedTokens.Any(rt => rt.Token == token))
+            {
+                _db.RevokedTokens.Add(new RevokedToken
+                {
+                    Token = token,
+                    ExpiresAt = expiresAt
+                });
+                _db.SaveChanges();
+            }
+
+            return Ok("Logged out");
+        }
 
         private string GenerateToken(AppUser user)
         {
