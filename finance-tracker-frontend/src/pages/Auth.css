@@ -1,0 +1,47 @@
+/* Auth (login/signup) shared styles */
+.auth-wrapper {
+  background: linear-gradient(180deg,#eaf6fb 0%, #f8fcff 100%);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 48px 16px;
+  min-height: 100vh;
+  box-sizing: border-box;
+}
+.auth-card {
+  width: 420px;
+  max-width: 100%;
+}
+.auth-card form {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+}
+.auth-card h2 {
+  color:#071133;
+  margin: 0 0 6px 0;
+  font-size: 20px;
+}
+.auth-input {
+  padding: 10px;
+  border-radius: 8px;
+  border: 1px solid #e6eef6;
+  font-size: 14px;
+}
+.auth-button {
+  padding: 10px 14px;
+  border-radius: 8px;
+  background-color: #071133;
+  color: #fff;
+  border: 0;
+  cursor: pointer;
+  font-weight: 600;
+}
+.auth-help {
+  font-size: 13px;
+  color: var(--muted);
+}
+.auth-error {
+  color: var(--danger);
+  font-size: 13px;
+}
