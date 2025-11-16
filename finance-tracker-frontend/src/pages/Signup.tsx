@@ -1,5 +1,6 @@
 import { useState, type FormEvent } from "react";
 import { register } from "../services/auth";
+import './Dashboard.css';
 
 export default function Signup() {
   const [email, setEmail] = useState("");
@@ -14,27 +15,33 @@ export default function Signup() {
   }
 
   return (
-    <form onSubmit={handleSignup}>
-      <h2>Sign Up</h2>
+    <div className="auth-wrapper">
+      <div className="card auth-card">
+        <form onSubmit={handleSignup}>
+          <h2>Sign Up</h2>
 
-      <input 
-        type="email"
-        placeholder="Email"
-        value={email}
-        onChange={e => setEmail(e.target.value)}
-      />
+          <input
+            className="auth-input"
+            type="email"
+            placeholder="Email"
+            value={email}
+            onChange={e => setEmail(e.target.value)}
+          />
 
-      <input 
-        type="password"
-        placeholder="Password"
-        value={password}
-        onChange={e => setPassword(e.target.value)}
-      />
+          <input
+            className="auth-input"
+            type="password"
+            placeholder="Password"
+            value={password}
+            onChange={e => setPassword(e.target.value)}
+          />
 
-      <button type="submit">Create Account</button>
+          <button className="auth-button" type="submit">Create Account</button>
 
-      {message && <p>{message}</p>}
-    </form>
+          {message && <p className="auth-help">{message}</p>}
+        </form>
+      </div>
+    </div>
   );
 }
 

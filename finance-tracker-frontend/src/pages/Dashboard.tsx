@@ -1,4 +1,4 @@
-import React from "react";
+import React, { useState } from "react";
 import './Dashboard.css';
 
 const transactions = [
@@ -9,6 +9,22 @@ const transactions = [
 ];
 
 export default function Dashboard() {
+  const [isLoggedIn, setIsLoggedIn] = useState<boolean>(() => {
+    try { return Boolean(localStorage.getItem('token')); } catch { return false; }
+  });
+
+  function handleAuthClick(e: React.MouseEvent) {
+    e.preventDefault();
+    if (isLoggedIn) {
+      // log out
+      try { localStorage.removeItem('token'); } catch { /* ignore */ }
+      setIsLoggedIn(false);
+      window.location.href = '/login';
+    } else {
+      // go to login
+      window.location.href = '/login';
+    }
+  }
   const categories = [
     { name: "Rent & Utilities", value: 30, color: "#34d399" },
     { name: "Food & Dining", value: 26, color: "#60a5fa" },
@@ -36,6 +52,7 @@ export default function Dashboard() {
           <a>Reports</a>
           <a>Categories</a>
           <a>Settings</a>
+          <a onClick={handleAuthClick} role="button" style={{ cursor: 'pointer' }}>{isLoggedIn ? 'Logout' : 'Login'}</a>
         </nav>
       </div>
 
