@@ -1,17 +1,47 @@
-import React, { useState } from "react";
+import React, { useState, useEffect } from "react";
 import './Dashboard.css';
+import StatementUploader from '../components/StatementUploader';
+import { getTransactions } from '../services/statement';
 
-const transactions = [
-  { id: 1, title: "Starbucks - Coffee", cat: "Food", amount: -5.5 },
-  { id: 2, title: "Magur Transit - Bus Fare", cat: "Transport", amount: -2.75 },
-  { id: 3, title: "Supermarket - Groceries", cat: "Food", amount: -75.2 },
-  { id: 4, title: "Salary", cat: "Income", amount: 2500 },
-];
+type Transaction = {
+  id: number;
+  title: string;
+  cat: string;
+  amount: number;
+};
 
 export default function Dashboard() {
   const [isLoggedIn, setIsLoggedIn] = useState<boolean>(() => {
     try { return Boolean(localStorage.getItem('token')); } catch { return false; }
   });
+  const [showUploader, setShowUploader] = useState<boolean>(false);
+  const [transactions, setTransactions] = useState<Transaction[]>([]);
+  const [loading, setLoading] = useState<boolean>(true);
+
+  useEffect(() => {
+    const fetchTransactions = async () => {
+      try {
+        const token = localStorage.getItem('token');
+        if (token) {
+          const result = await getTransactions(token);
+          setTransactions(result.data || result || []);
+        }
+      } catch (error) {
+        console.error('Failed to fetch transactions:', error);
+        // Fallback to dummy data if API fails
+        setTransactions([
+          { id: 1, title: "Starbucks - Coffee", cat: "Food", amount: -5.5 },
+          { id: 2, title: "Magur Transit - Bus Fare", cat: "Transport", amount: -2.75 },
+          { id: 3, title: "Supermarket - Groceries", cat: "Food", amount: -75.2 },
+          { id: 4, title: "Salary", cat: "Income", amount: 2500 },
+        ]);
+      } finally {
+        setLoading(false);
+      }
+    };
+
+    fetchTransactions();
+  }, []);
 
   function handleAuthClick(e: React.MouseEvent) {
     e.preventDefault();
@@ -123,21 +153,39 @@ export default function Dashboard() {
 
         <div className="column">
           <div className="card">
-            <div className="card-title">Recent Transactions</div>
+            <div className="card-title" style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+              Recent Transactions
+              <button 
+                className="auth-button" 
+                style={{ fontSize: '12px', padding: '6px 10px' }}
+                onClick={() => setShowUploader(!showUploader)}
+              >
+                Upload Statement
+              </button>
+            </div>
+            {showUploader && (
+              <div style={{ marginBottom: 12 }}>
+                <StatementUploader token={localStorage.getItem('token') || ''} />
+              </div>
+            )}
+            {loading ? (
+              <p style={{ textAlign: 'center', color: '#6b7280' }}>Loading transactions...</p>
+            ) : (
             <ul className="transactions" style={{ listStyle: 'none', padding: 0, marginTop: 12 }}>
               {transactions.map((t) => (
-                <li key={t.id}>
+                <li key={t.id || Math.random()}>
                   <div className="tx-left">
-                    <div className="tx-dot">{t.title.charAt(0)}</div>
+                    <div className="tx-dot">{(t.title || 'T').charAt(0)}</div>
                     <div>
-                      <div className="tx-desc">{t.title} <span style={{ color: '#94a3b8', fontSize: 12 }}>({t.amount < 0 ? `$${Math.abs(t.amount)}` : `$${t.amount}`})</span></div>
-                      <div className="tx-cat">{t.cat}</div>
+                      <div className="tx-desc">{t.title || 'Unknown Transaction'} <span style={{ color: '#94a3b8', fontSize: 12 }}>({t.amount && t.amount < 0 ? `$${Math.abs(t.amount)}` : `$${t.amount || 0}`})</span></div>
+                      <div className="tx-cat">{t.cat || 'Uncategorized'}</div>
                     </div>
                   </div>
-                  <div style={{ color: t.amount < 0 ? '#ef4444' : '#10b981' }}>{t.amount < 0 ? `-$${Math.abs(t.amount)}` : `$${t.amount}`}</div>
+                  <div style={{ color: (t.amount && t.amount < 0) ? '#ef4444' : '#10b981' }}>{t.amount && t.amount < 0 ? `-$${Math.abs(t.amount)}` : `$${t.amount || 0}`}</div>
                 </li>
               ))}
             </ul>
+            )}
           </div>
 
           <div className="card">
