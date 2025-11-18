@@ -1,0 +1,31 @@
+.transactions-page .transactions-area {
+  max-width: 960px;
+  margin: 32px auto 0;
+  padding: 0 36px 48px;
+  box-sizing: border-box;
+}
+
+
+.transactions-page .transactions-card {
+  background: #ffffff;
+  border-radius: 12px;
+  padding: 24px;
+  box-shadow: 0 6px 18px rgba(12, 23, 36, 0.06);
+}
+
+.transactions-page .transactions-card-header {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  margin-bottom: 16px;
+}
+
+.transactions-page .transactions-card-header h2 {
+  margin: 0;
+  color: #071133;
+}
+
+.transactions-page .transactions-card-header .small {
+  color: #6b7280;
+}
+

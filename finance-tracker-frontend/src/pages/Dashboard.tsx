@@ -77,7 +77,8 @@ export default function Dashboard() {
           <h2 style={{ margin: 0 }}>FINANCE-TRACKER</h2>
         </div>
         <nav className="nav">
-          <a className="active">Dashboard</a>
+          <a href="/" className="active">Dashboard</a>
+          <a href="/transactions">Transactions</a>
           <a>Expenses</a>
           <a>Reports</a>
           <a>Categories</a>
