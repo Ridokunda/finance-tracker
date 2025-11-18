@@ -18,6 +18,23 @@ namespace FinanceTracker.Api.Controllers
             _db = db;
         }
 
+        String CategorizeTransaction(string description, decimal amount)
+        {
+            description = description.ToLowerInvariant();
+            if(amount > 0)
+                return "Income";
+            if (description.Contains("checkers") || description.Contains("pick n pay"))
+                return "Groceries";
+            if (description.Contains("uber") || description.Contains("bolt"))
+                return "Transport";
+            if (description.Contains("restaurant") || description.Contains("cafe"))
+                return "Dining";
+            if (description.Contains("rent") || description.Contains("mortgage"))
+                return "Housing";
+            if (description.Contains("salary") || description.Contains("payroll"))
+                return "Income";
+            return "Other";
+        }
         [Authorize]
         [HttpPost("upload")]
         public async Task<IActionResult> UploadStatement(IFormFile file)
@@ -48,7 +65,8 @@ namespace FinanceTracker.Api.Controllers
                     UserId = userId,
                     Date = DateTime.Parse(parts[0]),
                     Description = parts[1],
-                    Amount = decimal.Parse(parts[2], CultureInfo.InvariantCulture)
+                    Amount = decimal.Parse(parts[2], CultureInfo.InvariantCulture),
+                    Category = CategorizeTransaction(parts[1], decimal.Parse(parts[2], CultureInfo.InvariantCulture))
                 };
 
                 newTransactions.Add(tx);
