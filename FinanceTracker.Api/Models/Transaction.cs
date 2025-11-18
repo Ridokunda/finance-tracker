@@ -7,8 +7,9 @@
 
         public DateTime Date { get; set; }
         public string Description { get; set; } = string.Empty;
-        public decimal Amount { get; set; }
         public string Category { get; set; } = "Uncategorized";
+        public decimal Amount { get; set; }
+        
 
         public AppUser User { get; set; }
     }

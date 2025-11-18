@@ -2,6 +2,7 @@
 using Microsoft.AspNetCore.Mvc;
 using FinanceTracker.Api.Data;
 using Microsoft.AspNetCore.Authorization;
+using System.Security.Claims;
 
 namespace FinanceTracker.Api.Controllers
 {
@@ -16,21 +17,35 @@ namespace FinanceTracker.Api.Controllers
         }
         [Authorize]
         [HttpGet]
-        public IActionResult Get([FromQuery] string type, [FromQuery] string category)
+        public IActionResult Get([FromQuery] string? type, [FromQuery] string? category)
         {
-            var userId = int.Parse(User.Claims.First(c => c.Type == "UserId").Value);
+            var userIdValue = User.FindFirstValue("UserId");
+            if (!int.TryParse(userIdValue, out var userId))
+            {
+                return Unauthorized("Invalid user context.");
+            }
+
             var query = _db.Transactions.Where(t => t.UserId == userId);
-            if (!string.IsNullOrEmpty(type))
+
+            if (!string.IsNullOrWhiteSpace(type))
             {
-                if (type.ToLower() == "income")
+                var typeLower = type.ToLowerInvariant();
+                if (typeLower == "income")
+                {
                     query = query.Where(t => t.Amount > 0);
-                else if (type.ToLower() == "expense")
+                }
+                else if (typeLower == "expense")
+                {
                     query = query.Where(t => t.Amount < 0);
+                }
             }
-            if (!string.IsNullOrEmpty(category))
+
+            if (!string.IsNullOrWhiteSpace(category))
             {
-                query = query.Where(t => t.Category.ToLower() == category.ToLower());
+                var categoryLower = category.ToLowerInvariant();
+                query = query.Where(t => t.Category != null && t.Category.ToLower() == categoryLower);
             }
+
             var transactions = query
                 .OrderByDescending(t => t.Date)
                 .Select(t => new
@@ -42,6 +57,7 @@ namespace FinanceTracker.Api.Controllers
                     t.Category
                 })
                 .ToList();
+
             return Ok(transactions);
         }
     }
