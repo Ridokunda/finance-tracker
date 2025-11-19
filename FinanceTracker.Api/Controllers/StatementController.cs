@@ -1,9 +1,11 @@
 ﻿using FinanceTracker.Api.Data;
 using FinanceTracker.Api.Models;
 using Microsoft.AspNetCore.Authorization;
+using Microsoft.AspNetCore.Http;
 using Microsoft.AspNetCore.Mvc;
-using System.Globalization;
 using Microsoft.EntityFrameworkCore;
+using System.Globalization;
+using System.Linq;
 
 namespace FinanceTracker.Api.Controllers
 {
@@ -11,71 +13,90 @@ namespace FinanceTracker.Api.Controllers
     [Route("api/[controller]")]
     public class StatementController : ControllerBase
     {
-        private readonly ApplicationDbContext _db;
+        private static readonly char[] PossibleDelimiters = { ',', ';', '\t', '|' };
+        private static readonly string[] SupportedDateFormats =
+        {
+            "yyyy-MM-dd",
+            "yyyy/MM/dd",
+            "dd/MM/yyyy",
+            "MM/dd/yyyy",
+            "dd-MM-yyyy",
+            "MM-dd-yyyy"
+        };
 
-        public StatementController(ApplicationDbContext db)
+        private readonly ApplicationDbContext _db;
+        private readonly TransactionCategorizer _categorizer;
+
+        public StatementController(ApplicationDbContext db, TransactionCategorizer categorizer)
         {
             _db = db;
+            _categorizer = categorizer;
         }
 
-        String CategorizeTransaction(string description, decimal amount)
-        {
-            description = description.ToLowerInvariant();
-            if(amount > 0)
-                return "Income";
-            if (description.Contains("checkers") || description.Contains("pick n pay"))
-                return "Groceries";
-            if (description.Contains("uber") || description.Contains("bolt"))
-                return "Transport";
-            if (description.Contains("restaurant") || description.Contains("cafe"))
-                return "Dining";
-            if (description.Contains("rent") || description.Contains("mortgage"))
-                return "Housing";
-            if (description.Contains("salary") || description.Contains("payroll"))
-                return "Income";
-            return "Other";
-        }
         [Authorize]
         [HttpPost("upload")]
         public async Task<IActionResult> UploadStatement(IFormFile file)
         {
             if (file == null || file.Length == 0)
-                return BadRequest("No file uploaded.");
-
-            if (!file.FileName.EndsWith(".csv"))
-                return BadRequest("Only CSV files are supported for now.");
-
-            using var reader = new StreamReader(file.OpenReadStream());
-            var csv = await reader.ReadToEndAsync();
-
-            var lines = csv.Split('\n');
-
-            var userId = int.Parse(User.Claims.First(c => c.Type == "UserId").Value);
-
-            var newTransactions = new List<Transaction>();
-
-            foreach (var line in lines.Skip(1)) // skip header
             {
-                if (string.IsNullOrWhiteSpace(line)) continue;
-
-                var parts = line.Split(',');
-
-                var tx = new Transaction
-                {
-                    UserId = userId,
-                    Date = DateTime.Parse(parts[0]),
-                    Description = parts[1],
-                    Amount = decimal.Parse(parts[2], CultureInfo.InvariantCulture),
-                    Category = CategorizeTransaction(parts[1], decimal.Parse(parts[2], CultureInfo.InvariantCulture))
-                };
-
-                newTransactions.Add(tx);
+                return BadRequest("No file uploaded.");
             }
 
-            _db.Transactions.AddRange(newTransactions);
+            if (!file.FileName.EndsWith(".csv", StringComparison.OrdinalIgnoreCase))
+            {
+                return BadRequest("Only CSV files are supported for now.");
+            }
+
+            using var reader = new StreamReader(file.OpenReadStream());
+            var contents = await reader.ReadToEndAsync();
+
+            var rows = contents
+                .Split(new[] { '\r', '\n' }, StringSplitOptions.RemoveEmptyEntries)
+                .ToArray();
+
+            if (rows.Length <= 1)
+            {
+                return BadRequest("The uploaded file does not contain any rows to import.");
+            }
+
+            var userId = int.Parse(User.Claims.First(c => c.Type == "UserId").Value);
+            var transactions = new List<Transaction>();
+
+            foreach (var (rawRow, index) in rows.Skip(1).Select((row, idx) => (row, idx + 2)))
+            {
+                if (string.IsNullOrWhiteSpace(rawRow))
+                {
+                    continue;
+                }
+
+                if (!TryParseTransactionRow(rawRow, out var date, out var description, out var amount, out var parseError))
+                {
+                    return BadRequest($"Row {index}: {parseError}");
+                }
+
+                var transaction = new Transaction
+                {
+                    UserId = userId,
+                    Date = date,
+                    Description = description,
+                    Amount = amount,
+                    Category = _categorizer.Predict(description, amount)
+                };
+
+                transactions.Add(transaction);
+            }
+
+            if (transactions.Count == 0)
+            {
+                return BadRequest("No transactions could be parsed from the uploaded statement.");
+            }
+
+            _db.Transactions.AddRange(transactions);
             await _db.SaveChangesAsync();
 
-            return Ok(new { message = "Statement uploaded", count = newTransactions.Count });
+            _categorizer.Train();
+
+            return Ok(new { message = "Statement uploaded", count = transactions.Count });
         }
 
         [Authorize]
@@ -90,6 +111,107 @@ namespace FinanceTracker.Api.Controllers
                 .ToListAsync();
 
             return Ok(transactions);
+        }
+
+        private static bool TryParseTransactionRow(
+            string rawLine,
+            out DateTime date,
+            out string description,
+            out decimal amount,
+            out string? error)
+        {
+            date = default;
+            description = string.Empty;
+            amount = default;
+
+            var line = rawLine.Trim();
+            if (line.Length == 0)
+            {
+                error = "Empty row.";
+                return false;
+            }
+
+            var delimiter = DetectDelimiter(line);
+            if (delimiter == null)
+            {
+                error = "Unable to detect a column separator.";
+                return false;
+            }
+
+            var parts = line
+                .Split(delimiter.Value)
+                .Select(part => part.Trim().Trim('"'))
+                .ToArray();
+
+            if (parts.Length < 3)
+            {
+                error = "Expected at least three columns (date, description, amount).";
+                return false;
+            }
+
+            var dateText = parts[0];
+            var descriptionText = parts[1];
+            var amountText = parts[2];
+
+            if (!TryParseDate(dateText, out date))
+            {
+                error = $"Invalid date '{dateText}'.";
+                return false;
+            }
+
+            if (!TryParseDecimal(amountText, out amount))
+            {
+                error = $"Invalid amount '{amountText}'.";
+                return false;
+            }
+
+            description = descriptionText;
+            error = null;
+            return true;
+        }
+
+        private static char? DetectDelimiter(string line)
+        {
+            foreach (var delimiter in PossibleDelimiters)
+            {
+                if (line.Contains(delimiter))
+                {
+                    return delimiter;
+                }
+            }
+
+            return null;
+        }
+
+        private static bool TryParseDate(string input, out DateTime date)
+        {
+            return DateTime.TryParseExact(
+                       input,
+                       SupportedDateFormats,
+                       CultureInfo.InvariantCulture,
+                       DateTimeStyles.AllowWhiteSpaces | DateTimeStyles.AssumeLocal,
+                       out date)
+                   || DateTime.TryParse(
+                       input,
+                       CultureInfo.InvariantCulture,
+                       DateTimeStyles.AllowWhiteSpaces | DateTimeStyles.AssumeLocal,
+                       out date)
+                   || DateTime.TryParse(
+                       input,
+                       CultureInfo.CurrentCulture,
+                       DateTimeStyles.AllowWhiteSpaces | DateTimeStyles.AssumeLocal,
+                       out date);
+        }
+
+        private static bool TryParseDecimal(string input, out decimal amount)
+        {
+            const NumberStyles styles = NumberStyles.Number |
+                                        NumberStyles.AllowCurrencySymbol |
+                                        NumberStyles.AllowThousands |
+                                        NumberStyles.AllowLeadingSign;
+
+            return decimal.TryParse(input, styles, CultureInfo.InvariantCulture, out amount)
+                   || decimal.TryParse(input, styles, CultureInfo.CurrentCulture, out amount);
         }
     }
 }
