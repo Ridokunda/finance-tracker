@@ -25,6 +25,35 @@ export async function getTransactions(token: string, type?: string, category?: s
     return normalizeTransactions(payload);
 }
 
+export interface CreateTransactionPayload {
+    date: string;
+    description: string;
+    amount: number;
+    category?: string;
+}
+
+export async function createTransaction(token: string, payload: CreateTransactionPayload): Promise<unknown> {
+    if (!token) {
+        throw new Error("Authentication required.");
+    }
+
+    const res = await fetch("/api/transaction", {
+        method: "POST",
+        headers: {
+            Authorization: `Bearer ${token}`,
+            "Content-Type": "application/json"
+        },
+        body: JSON.stringify(payload)
+    });
+
+    if (!res.ok) {
+        const message = await res.text().catch(() => "");
+        throw new Error(message || `Failed to create transaction (${res.status})`);
+    }
+
+    return res.json().catch(() => ({}));
+}
+
 function normalizeTransactions(payload: unknown): unknown[] {
     if (Array.isArray(payload)) {
         return payload;

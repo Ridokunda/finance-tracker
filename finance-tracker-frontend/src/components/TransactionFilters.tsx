@@ -6,9 +6,10 @@ interface Props {
   setTransactions: (data: unknown[]) => void;
   onLoadingChange?: (value: boolean) => void;
   onError?: (message: string) => void;
+  refreshKey?: number;
 }
 
-export default function TransactionFilters({ token, setTransactions, onLoadingChange, onError }: Props) {
+export default function TransactionFilters({ token, setTransactions, onLoadingChange, onError, refreshKey = 0 }: Props) {
   const [type, setType] = useState("");
   const [category, setCategory] = useState("");
 
@@ -35,7 +36,7 @@ export default function TransactionFilters({ token, setTransactions, onLoadingCh
 
   useEffect(() => {
     loadFiltered();
-  }, [loadFiltered]);
+  }, [loadFiltered, refreshKey]);
 
   return (
     <div style={{ marginBottom: "1rem", display: "flex", gap: "1rem" }}>
