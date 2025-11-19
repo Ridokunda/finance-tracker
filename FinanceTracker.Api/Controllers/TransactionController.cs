@@ -1,6 +1,7 @@
 ﻿using Microsoft.AspNetCore.Http;
 using Microsoft.AspNetCore.Mvc;
 using FinanceTracker.Api.Data;
+using FinanceTracker.Api.Models;
 using Microsoft.AspNetCore.Authorization;
 using System.Security.Claims;
 
@@ -43,7 +44,7 @@ namespace FinanceTracker.Api.Controllers
             if (!string.IsNullOrWhiteSpace(category))
             {
                 var categoryLower = category.ToLowerInvariant();
-                query = query.Where(t => t.Category != null && t.Category.ToLower() == categoryLower);
+                query = query.Where(t => t.Category != null && t.Category.ToLowerInvariant() == categoryLower);
             }
 
             var transactions = query
@@ -59,6 +60,61 @@ namespace FinanceTracker.Api.Controllers
                 .ToList();
 
             return Ok(transactions);
+        }
+
+        [Authorize]
+        [HttpPost]
+        public IActionResult Create([FromBody] CreateTransactionRequest? request)
+        {
+            if (request == null)
+            {
+                return BadRequest("Request body required.");
+            }
+
+            var userIdValue = User.FindFirstValue("UserId");
+            if (!int.TryParse(userIdValue, out var userId))
+            {
+                return Unauthorized("Invalid user context.");
+            }
+
+            if (string.IsNullOrWhiteSpace(request.Description))
+            {
+                return BadRequest("Description is required.");
+            }
+
+            if (request.Amount == 0)
+            {
+                return BadRequest("Amount must be non-zero.");
+            }
+
+            var entity = new Transaction
+            {
+                UserId = userId,
+                Date = request.Date == default ? DateTime.UtcNow : request.Date,
+                Description = request.Description.Trim(),
+                Amount = request.Amount,
+                Category = string.IsNullOrWhiteSpace(request.Category) ? "Uncategorized" : request.Category.Trim()
+            };
+
+            _db.Transactions.Add(entity);
+            _db.SaveChanges();
+
+            return Ok(new
+            {
+                entity.Id,
+                entity.Date,
+                entity.Description,
+                entity.Amount,
+                entity.Category
+            });
+        }
+
+        public class CreateTransactionRequest
+        {
+            public DateTime Date { get; set; }
+            public string Description { get; set; } = string.Empty;
+            public string? Category { get; set; }
+            public decimal Amount { get; set; }
         }
     }
 }
