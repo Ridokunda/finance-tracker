@@ -248,7 +248,7 @@ export default function TransactionsPage() {
     <div className="dashboard-wrap transactions-page">
       <div className="topbar">
         <div className="brand">
-          <div className="logo" />
+          <img src="/logo.png" alt="Finance Tracker logo" className="logo" />
           <h2 style={{ margin: 0 }}>FINANCE-TRACKER</h2>
         </div>
         <nav className="nav">
