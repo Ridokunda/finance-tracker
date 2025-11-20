@@ -2,6 +2,7 @@ import React, { useState, useEffect } from "react";
 import './Dashboard.css';
 import StatementUploader from '../components/StatementUploader';
 import { getTransactions } from '../services/statement';
+import { getBudget, setBudget as updateBudget } from "../services/budget";
 
 type Transaction = {
   id: number;
@@ -17,6 +18,13 @@ export default function Dashboard() {
   const [showUploader, setShowUploader] = useState<boolean>(false);
   const [transactions, setTransactions] = useState<Transaction[]>([]);
   const [loading, setLoading] = useState<boolean>(true);
+  const [budget, setBudget] = useState(0);
+  const [remaining, setRemaining] = useState(0);
+  const [budgetModalOpen, setBudgetModalOpen] = useState(false);
+  const [budgetInput, setBudgetInput] = useState("");
+  const [budgetError, setBudgetError] = useState("");
+  const [budgetSaving, setBudgetSaving] = useState(false);
+
 
   useEffect(() => {
     const fetchTransactions = async () => {
@@ -39,7 +47,16 @@ export default function Dashboard() {
         setLoading(false);
       }
     };
+    const token = localStorage.getItem("token") || "";
 
+    const fetchBudget = async () => {
+      const summary = await getBudget(token);
+      setBudget(summary.budget);
+      setRemaining(summary.remaining);
+      setBudgetInput(summary.budget.toString());
+    };
+
+    fetchBudget();
     fetchTransactions();
   }, []);
 
@@ -91,9 +108,22 @@ export default function Dashboard() {
         <div className="column">
           <div className="row-cards">
             <div className="card h-lg">
-              <div className="card-title">Current Balance</div>
-              <div className="card-value">$15,450.75</div>
-              <div className="card-sub" style={{ color: '#10b981' }}>+62,100.50 this month</div>
+              <div className="card-title">Monthly Budget</div>
+              <div className="card-value">${budget.toFixed(2)}</div>
+              <div className="card-sub" style={{ color: remaining < 0 ? "#ef4444" : "#10b981" }}>
+                Remaining: ${remaining.toFixed(2)}
+              </div>
+              <button
+                className="card-action"
+                type="button"
+                onClick={() => {
+                  setBudgetInput(budget.toFixed(2));
+                  setBudgetError("");
+                  setBudgetModalOpen(true);
+                }}
+              >
+                Update Budget
+              </button>
             </div>
             <div className="card h-lg">
               <div className="card-title">Monthly Spending</div>
@@ -215,6 +245,87 @@ export default function Dashboard() {
 
         </div>
       </div>
+
+      {budgetModalOpen && (
+        <div className="dashboard-modal-overlay" role="dialog" aria-modal="true">
+          <div className="dashboard-modal">
+            <h3>Update Monthly Budget</h3>
+            <form
+              onSubmit={async (event) => {
+                event.preventDefault();
+                const token = localStorage.getItem("token") || "";
+                if (!token) {
+                  setBudgetError("You must be logged in to update the budget.");
+                  return;
+                }
+
+                const nextBudget = Number(budgetInput);
+                if (!Number.isFinite(nextBudget) || nextBudget < 0) {
+                  setBudgetError("Enter a valid non-negative number.");
+                  return;
+                }
+
+                setBudgetSaving(true);
+                setBudgetError("");
+
+                try {
+                  const summary = await updateBudget(token, nextBudget);
+                  const updatedBudget = typeof summary.budget === "number" ? summary.budget : nextBudget;
+                  const updatedRemaining = typeof summary.remaining === "number"
+                    ? summary.remaining
+                    : typeof summary.spent === "number"
+                      ? updatedBudget - summary.spent
+                      : updatedBudget;
+
+                  setBudget(updatedBudget);
+                  setRemaining(updatedRemaining);
+                  setBudgetModalOpen(false);
+                } catch (err) {
+                  const message = err instanceof Error && err.message ? err.message : "Unable to update budget.";
+                  setBudgetError(message);
+                } finally {
+                  setBudgetSaving(false);
+                }
+              }}
+              className="dashboard-modal-form"
+            >
+              <label>
+                <span>Monthly Budget</span>
+                <input
+                  type="number"
+                  min="0"
+                  step="0.01"
+                  value={budgetInput}
+                  onChange={(event) => setBudgetInput(event.target.value)}
+                  disabled={budgetSaving}
+                  autoFocus
+                  required
+                />
+              </label>
+
+              {budgetError && <p className="modal-error">{budgetError}</p>}
+
+              <div className="dashboard-modal-actions">
+                <button
+                  type="button"
+                  className="secondary-btn"
+                  onClick={() => setBudgetModalOpen(false)}
+                  disabled={budgetSaving}
+                >
+                  Cancel
+                </button>
+                <button
+                  type="submit"
+                  className="primary-btn"
+                  disabled={budgetSaving}
+                >
+                  {budgetSaving ? "Saving..." : "Save Budget"}
+                </button>
+              </div>
+            </form>
+          </div>
+        </div>
+      )}
     </div>
   );
 }

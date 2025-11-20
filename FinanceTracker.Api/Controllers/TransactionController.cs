@@ -116,5 +116,20 @@ namespace FinanceTracker.Api.Controllers
             public string? Category { get; set; }
             public decimal Amount { get; set; }
         }
+
+        [Authorize]
+        [HttpGet("balance")]
+        public IActionResult GetBalance()
+        {
+            var userId = int.Parse(User.Claims.First(c => c.Type == "UserId").Value);
+
+            var income = _db.Transactions.Where(t => t.UserId == userId && t.Amount > 0).Sum(t => t.Amount);
+            var expenses = _db.Transactions.Where(t => t.UserId == userId && t.Amount < 0).Sum(t => t.Amount);
+
+            var balance = income + expenses;
+
+            return Ok(new { balance });
+        }
+
     }
 }
