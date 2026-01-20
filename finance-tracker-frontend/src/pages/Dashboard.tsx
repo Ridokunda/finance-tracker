@@ -6,7 +6,7 @@ import { getBudget, setBudget as updateBudget } from "../services/budget";
 
 type Transaction = {
   id: number;
-  title: string;
+  description: string;
   cat: string;
   amount: number;
 };
@@ -19,6 +19,7 @@ export default function Dashboard() {
   const [transactions, setTransactions] = useState<Transaction[]>([]);
   const [loading, setLoading] = useState<boolean>(true);
   const [budget, setBudget] = useState(0);
+  const [spent, setSpent] = useState(0);
   const [remaining, setRemaining] = useState(0);
   const [budgetModalOpen, setBudgetModalOpen] = useState(false);
   const [budgetInput, setBudgetInput] = useState("");
@@ -38,10 +39,10 @@ export default function Dashboard() {
         console.error('Failed to fetch transactions:', error);
         // Fallback to dummy data if API fails
         setTransactions([
-          { id: 1, title: "Starbucks - Coffee", cat: "Food", amount: -5.5 },
-          { id: 2, title: "Magur Transit - Bus Fare", cat: "Transport", amount: -2.75 },
-          { id: 3, title: "Supermarket - Groceries", cat: "Food", amount: -75.2 },
-          { id: 4, title: "Salary", cat: "Income", amount: 2500 },
+          { id: 1, description: "Starbucks - Coffee", cat: "Food", amount: -5.5 },
+          { id: 2, description: "Magur Transit - Bus Fare", cat: "Transport", amount: -2.75 },
+          { id: 3, description: "Supermarket - Groceries", cat: "Food", amount: -75.2 },
+          { id: 4, description: "Salary", cat: "Income", amount: 2500 },
         ]);
       } finally {
         setLoading(false);
@@ -52,7 +53,8 @@ export default function Dashboard() {
     const fetchBudget = async () => {
       const summary = await getBudget(token);
       setBudget(summary.budget);
-      setRemaining(summary.remaining);
+      setSpent(summary.spent ?? 0);
+      setRemaining(summary.remaining ?? 0);
       setBudgetInput(summary.budget.toString());
     };
 
@@ -127,8 +129,10 @@ export default function Dashboard() {
             </div>
             <div className="card h-lg">
               <div className="card-title">Monthly Spending</div>
-              <div className="card-value">$3,210.10</div>
-              <div className="card-sub" style={{ color: '#ef4444' }}>-450.20 compared to last month</div>
+              <div className="card-value">${spent.toFixed(2)}</div>
+              <div className="card-sub" style={{ color: spent > budget ? '#ef4444' : '#6b7280' }}>
+                {spent > budget ? "Over budget" : "Tracked so far"}
+              </div>
             </div>
           </div>
 
@@ -206,9 +210,9 @@ export default function Dashboard() {
               {transactions.map((t) => (
                 <li key={t.id || Math.random()}>
                   <div className="tx-left">
-                    <div className="tx-dot">{(t.title || 'T').charAt(0)}</div>
+                    <div className="tx-dot">{(t.description || 'T').charAt(0)}</div>
                     <div>
-                      <div className="tx-desc">{t.title || 'Unknown Transaction'} <span style={{ color: '#94a3b8', fontSize: 12 }}>({t.amount && t.amount < 0 ? `$${Math.abs(t.amount)}` : `$${t.amount || 0}`})</span></div>
+                      <div className="tx-desc">{t.description || 'Unknown Transaction'} <span style={{ color: '#94a3b8', fontSize: 12 }}>({t.amount && t.amount < 0 ? `$${Math.abs(t.amount)}` : `$${t.amount || 0}`})</span></div>
                       <div className="tx-cat">{t.cat || 'Uncategorized'}</div>
                     </div>
                   </div>
@@ -278,6 +282,7 @@ export default function Dashboard() {
                       : updatedBudget;
 
                   setBudget(updatedBudget);
+                  setSpent(summary.spent ?? spent);
                   setRemaining(updatedRemaining);
                   setBudgetModalOpen(false);
                 } catch (err) {
