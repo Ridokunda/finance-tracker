@@ -25,12 +25,10 @@ namespace FinanceTracker.Api.Controllers
         };
 
         private readonly ApplicationDbContext _db;
-        private readonly TransactionCategorizer _categorizer;
 
-        public StatementController(ApplicationDbContext db, TransactionCategorizer categorizer)
+        public StatementController(ApplicationDbContext db)
         {
             _db = db;
-            _categorizer = categorizer;
         }
 
         [Authorize]
@@ -80,7 +78,7 @@ namespace FinanceTracker.Api.Controllers
                     Date = date,
                     Description = description,
                     Amount = amount,
-                    Category = _categorizer.Predict(description, amount)
+                    Category = "Uncategorized"
                 };
 
                 transactions.Add(transaction);
@@ -93,8 +91,6 @@ namespace FinanceTracker.Api.Controllers
 
             _db.Transactions.AddRange(transactions);
             await _db.SaveChangesAsync();
-
-            _categorizer.Train();
 
             return Ok(new { message = "Statement uploaded", count = transactions.Count });
         }
