@@ -32,6 +32,13 @@ export interface CreateTransactionPayload {
     category?: string;
 }
 
+export interface UpdateTransactionPayload {
+    date: string;
+    description: string;
+    amount: number;
+    category?: string;
+}
+
 export async function createTransaction(token: string, payload: CreateTransactionPayload): Promise<unknown> {
     if (!token) {
         throw new Error("Authentication required.");
@@ -49,6 +56,28 @@ export async function createTransaction(token: string, payload: CreateTransactio
     if (!res.ok) {
         const message = await res.text().catch(() => "");
         throw new Error(message || `Failed to create transaction (${res.status})`);
+    }
+
+    return res.json().catch(() => ({}));
+}
+
+export async function updateTransaction(token: string, id: number, payload: UpdateTransactionPayload): Promise<unknown> {
+    if (!token) {
+        throw new Error("Authentication required.");
+    }
+
+    const res = await fetch(`/api/transaction/${id}`, {
+        method: "PUT",
+        headers: {
+            Authorization: `Bearer ${token}`,
+            "Content-Type": "application/json"
+        },
+        body: JSON.stringify(payload)
+    });
+
+    if (!res.ok) {
+        const message = await res.text().catch(() => "");
+        throw new Error(message || `Failed to update transaction (${res.status})`);
     }
 
     return res.json().catch(() => ({}));

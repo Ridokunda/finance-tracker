@@ -3,6 +3,7 @@ import './Dashboard.css';
 import StatementUploader from '../components/StatementUploader';
 import { getTransactions } from '../services/statement';
 import { getBudget, setBudget as updateBudget } from "../services/budget";
+import { logout } from "../services/auth";
 
 type Transaction = {
   id: number;
@@ -62,10 +63,18 @@ export default function Dashboard() {
     fetchTransactions();
   }, []);
 
-  function handleAuthClick(e: React.MouseEvent) {
+  async function handleAuthClick(e: React.MouseEvent) {
     e.preventDefault();
     if (isLoggedIn) {
-      // log out
+      const token = localStorage.getItem("token") || "";
+      if (token) {
+        try {
+          await logout(token);
+        } catch (error) {
+          console.warn("Logout API call failed, clearing local session anyway.", error);
+        }
+      }
+
       try { localStorage.removeItem('token'); } catch { /* ignore */ }
       setIsLoggedIn(false);
       window.location.href = '/login';

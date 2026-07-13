@@ -1,5 +1,5 @@
 import { useState, type FormEvent, type MouseEvent } from "react";
-import { login } from "../services/auth";
+import { login, logout } from "../services/auth";
 import './Auth.css';
 import './Dashboard.css';
 
@@ -11,9 +11,18 @@ export default function Login() {
     try { return Boolean(localStorage.getItem('token')); } catch { return false; }
   });
 
-  function handleAuthClick(e: MouseEvent) {
+  async function handleAuthClick(e: MouseEvent) {
     e.preventDefault();
     if (isLoggedIn) {
+      const token = localStorage.getItem("token") || "";
+      if (token) {
+        try {
+          await logout(token);
+        } catch (error) {
+          console.warn("Logout API call failed, clearing local session anyway.", error);
+        }
+      }
+
       try { localStorage.removeItem('token'); } catch { /* ignore */ }
       setIsLoggedIn(false);
       window.location.href = '/login';

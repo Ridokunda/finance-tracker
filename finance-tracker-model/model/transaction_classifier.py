@@ -6,8 +6,10 @@ from sklearn.metrics import classification_report, accuracy_score
 import joblib
 import os
 
+__all__ = ['TransactionClassifier']
+
 class TransactionClassifier:
-    def __init__(self, model_path='transaction_classifier_model.pkl', vectorizer_path='tfidf_vectorizer.pkl'):
+    def __init__(self, model_path='../transaction_classifier_model.pkl', vectorizer_path='../tfidf_vectorizer.pkl'):
         self.model_path = model_path
         self.vectorizer_path = vectorizer_path
         self.model = None

@@ -109,7 +109,63 @@ namespace FinanceTracker.Api.Controllers
             });
         }
 
+        [Authorize]
+        [HttpPut("{id:int}")]
+        public IActionResult Update(int id, [FromBody] UpdateTransactionRequest? request)
+        {
+            if (request == null)
+            {
+                return BadRequest("Request body required.");
+            }
+
+            var userIdValue = User.FindFirstValue("UserId");
+            if (!int.TryParse(userIdValue, out var userId))
+            {
+                return Unauthorized("Invalid user context.");
+            }
+
+            if (string.IsNullOrWhiteSpace(request.Description))
+            {
+                return BadRequest("Description is required.");
+            }
+
+            if (request.Amount == 0)
+            {
+                return BadRequest("Amount must be non-zero.");
+            }
+
+            var entity = _db.Transactions.FirstOrDefault(t => t.Id == id && t.UserId == userId);
+            if (entity == null)
+            {
+                return NotFound("Transaction not found.");
+            }
+
+            entity.Date = request.Date == default ? entity.Date : request.Date;
+            entity.Description = request.Description.Trim();
+            entity.Amount = request.Amount;
+            entity.Category = string.IsNullOrWhiteSpace(request.Category) ? "Uncategorized" : request.Category.Trim();
+
+            _db.SaveChanges();
+
+            return Ok(new
+            {
+                entity.Id,
+                entity.Date,
+                entity.Description,
+                entity.Amount,
+                entity.Category
+            });
+        }
+
         public class CreateTransactionRequest
+        {
+            public DateTime Date { get; set; }
+            public string Description { get; set; } = string.Empty;
+            public string? Category { get; set; }
+            public decimal Amount { get; set; }
+        }
+
+        public class UpdateTransactionRequest
         {
             public DateTime Date { get; set; }
             public string Description { get; set; } = string.Empty;

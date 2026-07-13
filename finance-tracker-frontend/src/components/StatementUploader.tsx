@@ -20,7 +20,7 @@ function StatementUploader({ token }: { token: string }) {
     <div>
       <input 
         type="file" 
-        accept=".csv" 
+        accept=".csv,text/csv,.pdf,application/pdf" 
         onChange={e => setFile(e.target.files?.[0] || null)}
       />
       <button onClick={handleUpload}>Upload</button>

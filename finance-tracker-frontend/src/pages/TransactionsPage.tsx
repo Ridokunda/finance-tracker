@@ -1,7 +1,8 @@
 import { useEffect, useState, useCallback } from "react";
 import type { ChangeEvent, FormEvent, MouseEvent } from "react";
-import { createTransaction, getTransactions } from "../services/transaction";
+import { createTransaction, getTransactions, updateTransaction } from "../services/transaction";
 import { uploadStatement } from "../services/statement";
+import { logout } from "../services/auth";
 import TransactionFilters from "../components/TransactionFilters.tsx";
 import TransactionsList from "../components/TransactionsList.tsx";
 import "./Dashboard.css";
@@ -30,6 +31,7 @@ const createInitialFormState = (): TransactionFormState => ({
 });
 
 type ModalMode = "transaction" | "statement";
+type TransactionDirection = "income" | "expense";
 
 function normalizeTransactions(payload: unknown): Transaction[] {
   if (Array.isArray(payload)) {
@@ -67,6 +69,8 @@ export default function TransactionsPage() {
   const [formError, setFormError] = useState<string>("");
   const [refreshKey, setRefreshKey] = useState<number>(0);
   const [modalMode, setModalMode] = useState<ModalMode>("transaction");
+  const [transactionDirection, setTransactionDirection] = useState<TransactionDirection>("expense");
+  const [editingTransactionId, setEditingTransactionId] = useState<number | null>(null);
   const [statementFile, setStatementFile] = useState<File | null>(null);
 
   useEffect(() => {
@@ -109,9 +113,17 @@ export default function TransactionsPage() {
     load();
   }, [token]);
 
-  const handleAuthClick = (e: MouseEvent<HTMLAnchorElement>) => {
+  const handleAuthClick = async (e: MouseEvent<HTMLAnchorElement>) => {
     e.preventDefault();
     if (isLoggedIn) {
+      if (token) {
+        try {
+          await logout(token);
+        } catch (error) {
+          console.warn("Logout API call failed, clearing local session anyway.", error);
+        }
+      }
+
       try {
         localStorage.removeItem("token");
       } catch {
@@ -134,9 +146,26 @@ export default function TransactionsPage() {
 
   const handleAddClick = () => {
     setModalMode("transaction");
+    setEditingTransactionId(null);
+    setTransactionDirection("expense");
     setStatementFile(null);
     setFormData(createInitialFormState());
     setFormError("");
+    setModalOpen(true);
+  };
+
+  const handleEditClick = (transaction: Transaction) => {
+    setModalMode("transaction");
+    setEditingTransactionId(transaction.id);
+    setTransactionDirection(transaction.amount < 0 ? "expense" : "income");
+    setStatementFile(null);
+    setFormError("");
+    setFormData({
+      date: transaction.date ? new Date(transaction.date).toISOString().split("T")[0] : createInitialFormState().date,
+      description: transaction.description,
+      category: transaction.category || "",
+      amount: Math.abs(transaction.amount).toString()
+    });
     setModalOpen(true);
   };
 
@@ -144,6 +173,8 @@ export default function TransactionsPage() {
     setModalOpen(false);
     setFormError("");
     setModalMode("transaction");
+    setEditingTransactionId(null);
+    setTransactionDirection("expense");
     setFormData(createInitialFormState());
     setStatementFile(null);
   };
@@ -157,8 +188,11 @@ export default function TransactionsPage() {
     setFormError("");
 
     if (mode === "transaction") {
+      setEditingTransactionId(null);
+      setTransactionDirection("expense");
       setFormData(createInitialFormState());
     } else {
+      setEditingTransactionId(null);
       setStatementFile(null);
     }
   };
@@ -194,18 +228,29 @@ export default function TransactionsPage() {
         return;
       }
 
+      const normalizedAmount = Math.abs(amountValue) * (transactionDirection === "expense" ? -1 : 1);
+
       const isoDate = formData.date ? new Date(formData.date).toISOString() : new Date().toISOString();
 
       setFormSubmitting(true);
       setFormError("");
 
       try {
-        await createTransaction(token, {
-          date: isoDate,
-          description,
-          amount: amountValue,
-          category: formData.category.trim() || undefined
-        });
+        if (editingTransactionId == null) {
+          await createTransaction(token, {
+            date: isoDate,
+            description,
+            amount: normalizedAmount,
+            category: formData.category.trim() || undefined
+          });
+        } else {
+          await updateTransaction(token, editingTransactionId, {
+            date: isoDate,
+            description,
+            amount: normalizedAmount,
+            category: formData.category.trim() || undefined
+          });
+        }
 
         setError("");
         setLoading(true);
@@ -294,7 +339,7 @@ export default function TransactionsPage() {
           ) : error ? (
             <p style={{ color: "#ef4444" }}>{error}</p>
           ) : (
-            <TransactionsList transactions={transactions} />
+            <TransactionsList transactions={transactions} onEdit={handleEditClick} />
           )}
         </div>
       </div>
@@ -302,7 +347,13 @@ export default function TransactionsPage() {
       {isModalOpen && (
         <div className="transactions-modal-overlay" role="dialog" aria-modal="true">
           <div className="transactions-modal">
-            <h3>{modalMode === "transaction" ? "Add Transaction" : "Upload Statement"}</h3>
+            <h3>
+              {modalMode === "transaction"
+                ? editingTransactionId == null
+                  ? "Add Transaction"
+                  : "Edit Transaction"
+                : "Upload Statement"}
+            </h3>
 
             <div className="transactions-modal-toggle" role="tablist" aria-label="Add options">
               <button
@@ -328,6 +379,27 @@ export default function TransactionsPage() {
             <form className="transactions-modal-form" onSubmit={handleFormSubmit}>
               {modalMode === "transaction" ? (
                 <>
+                  <div className="transactions-modal-toggle" role="tablist" aria-label="Transaction type">
+                    <button
+                      type="button"
+                      className={`toggle-option ${transactionDirection === "expense" ? "is-active" : ""}`}
+                      onClick={() => setTransactionDirection("expense")}
+                      aria-pressed={transactionDirection === "expense"}
+                      disabled={formSubmitting}
+                    >
+                      Expense
+                    </button>
+                    <button
+                      type="button"
+                      className={`toggle-option ${transactionDirection === "income" ? "is-active" : ""}`}
+                      onClick={() => setTransactionDirection("income")}
+                      aria-pressed={transactionDirection === "income"}
+                      disabled={formSubmitting}
+                    >
+                      Income
+                    </button>
+                  </div>
+
                   <label>
                     <span>Date</span>
                     <input
@@ -369,7 +441,8 @@ export default function TransactionsPage() {
                       type="number"
                       value={formData.amount}
                       onChange={handleFormChange("amount")}
-                      placeholder="Use positive for income, negative for expenses"
+                      placeholder="Enter a positive amount"
+                      min="0"
                       step="0.01"
                       required
                       disabled={formSubmitting}
@@ -379,14 +452,14 @@ export default function TransactionsPage() {
               ) : (
                 <>
                   <p className="modal-helper-text">
-                    Upload a CSV statement exported from your bank. We will import each row as a transaction and auto-categorize known vendors.
+                    Upload a CSV or PDF statement exported from your bank. We will import each row as a transaction and auto-categorize known vendors.
                   </p>
 
                   <label>
-                    <span>Statement (CSV)</span>
+                    <span>Statement (CSV or PDF)</span>
                     <input
                       type="file"
-                      accept=".csv,text/csv"
+                      accept=".csv,text/csv,.pdf,application/pdf"
                       onChange={handleFileChange}
                       required
                       disabled={formSubmitting}
@@ -417,7 +490,11 @@ export default function TransactionsPage() {
                   disabled={formSubmitting}
                 >
                   {modalMode === "transaction"
-                    ? formSubmitting ? "Saving..." : "Save Transaction"
+                    ? formSubmitting
+                      ? "Saving..."
+                      : editingTransactionId == null
+                        ? "Save Transaction"
+                        : "Update Transaction"
                     : formSubmitting ? "Uploading..." : "Upload Statement"}
                 </button>
               </div>

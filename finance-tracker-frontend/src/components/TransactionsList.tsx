@@ -6,9 +6,16 @@ interface Props {
     amount: number;
     category: string;
   }[];
+  onEdit: (transaction: {
+    id: number;
+    date: string;
+    description: string;
+    amount: number;
+    category: string;
+  }) => void;
 }
 
-export default function TransactionsList({ transactions }: Props) {
+export default function TransactionsList({ transactions, onEdit }: Props) {
   if (transactions.length === 0) {
     return <p>No transactions found.</p>;
   }
@@ -27,6 +34,7 @@ export default function TransactionsList({ transactions }: Props) {
           <th style={{ padding: "8px", border: "1px solid #ccc" }}>Description</th>
           <th style={{ padding: "8px", border: "1px solid #ccc" }}>Category</th>
           <th style={{ padding: "8px", border: "1px solid #ccc" }}>Amount</th>
+          <th style={{ padding: "8px", border: "1px solid #ccc" }}>Actions</th>
         </tr>
       </thead>
 
@@ -50,6 +58,23 @@ export default function TransactionsList({ transactions }: Props) {
               }}
             >
               {t.amount.toFixed(2)}
+            </td>
+            <td style={{ padding: "8px", border: "1px solid #ddd" }}>
+              <button
+                type="button"
+                onClick={() => onEdit(t)}
+                style={{
+                  backgroundColor: "#2563eb",
+                  color: "#fff",
+                  border: "none",
+                  borderRadius: "6px",
+                  padding: "6px 10px",
+                  cursor: "pointer",
+                  fontWeight: 600
+                }}
+              >
+                Edit
+              </button>
             </td>
           </tr>
         ))}
