@@ -4,6 +4,7 @@ using FinanceTracker.Api.Data;
 using FinanceTracker.Api.Models;
 using Microsoft.AspNetCore.Authorization;
 using System.Security.Claims;
+using System.Net.Http.Json;
 
 namespace FinanceTracker.Api.Controllers
 {
@@ -12,6 +13,10 @@ namespace FinanceTracker.Api.Controllers
     public class TransactionController : ControllerBase
     {
         private readonly ApplicationDbContext _db;
+        private static readonly HttpClient _classifierClient = new HttpClient
+        {
+            BaseAddress = new Uri("http://localhost:8000/")
+        };
         public TransactionController(ApplicationDbContext db)
         {
             _db = db;
@@ -60,6 +65,43 @@ namespace FinanceTracker.Api.Controllers
                 .ToList();
 
             return Ok(transactions);
+        }
+
+        [Authorize]
+        [HttpPost("classify")]
+        public async Task<IActionResult> Classify([FromBody] ClassifyTransactionRequest? request)
+        {
+            if (request == null || string.IsNullOrWhiteSpace(request.Description))
+            {
+                return BadRequest("Description is required.");
+            }
+
+            try
+            {
+                using var response = await _classifierClient.PostAsJsonAsync(
+                    "predict",
+                    new { description = request.Description.Trim() });
+
+                if (!response.IsSuccessStatusCode)
+                {
+                    return StatusCode(StatusCodes.Status503ServiceUnavailable,
+                        "The classification service is unavailable.");
+                }
+
+                var prediction = await response.Content.ReadFromJsonAsync<PredictionResponse>();
+                if (prediction == null || string.IsNullOrWhiteSpace(prediction.Category))
+                {
+                    return StatusCode(StatusCodes.Status503ServiceUnavailable,
+                        "The classification service returned no category.");
+                }
+
+                return Ok(new { category = prediction.Category });
+            }
+            catch (HttpRequestException)
+            {
+                return StatusCode(StatusCodes.Status503ServiceUnavailable,
+                    "The classification service is unavailable.");
+            }
         }
 
         [Authorize]
@@ -171,6 +213,16 @@ namespace FinanceTracker.Api.Controllers
             public string Description { get; set; } = string.Empty;
             public string? Category { get; set; }
             public decimal Amount { get; set; }
+        }
+
+        public class ClassifyTransactionRequest
+        {
+            public string Description { get; set; } = string.Empty;
+        }
+
+        private sealed class PredictionResponse
+        {
+            public string? Category { get; set; }
         }
 
         [Authorize]

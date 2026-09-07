@@ -2,7 +2,7 @@ import { useState } from 'react';
 import { uploadStatement } from '../services/statement';
 export default
 
-function StatementUploader({ token }: { token: string }) {
+function StatementUploader({ token, onUploaded }: { token: string; onUploaded?: () => void | Promise<void> }) {
   const [file, setFile] = useState<File | null>(null);
   const [status, setStatus] = useState("");
 
@@ -12,8 +12,13 @@ function StatementUploader({ token }: { token: string }) {
       return;
     }
 
-    const result = await uploadStatement(file, token);
-    setStatus(`Uploaded ${result.count} transactions.`);
+    try {
+      const result = await uploadStatement(file, token);
+      setStatus(`Uploaded ${result.count} transactions.`);
+      await onUploaded?.();
+    } catch (error) {
+      setStatus(error instanceof Error ? error.message : 'Unable to upload statement.');
+    }
   };
 
   return (

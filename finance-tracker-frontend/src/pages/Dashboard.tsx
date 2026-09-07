@@ -1,278 +1,486 @@
-import React, { useState, useEffect } from "react";
-import './Dashboard.css';
-import StatementUploader from '../components/StatementUploader';
-import { getTransactions } from '../services/statement';
-import { getBudget, setBudget as updateBudget } from "../services/budget";
+import { useCallback, useEffect, useMemo, useState } from "react";
+import type { FormEvent, MouseEvent } from "react";
+import "./Dashboard.css";
+import StatementUploader from "../components/StatementUploader";
+import {
+  classifyTransaction,
+  getTransactions,
+  type ClassificationResult,
+  type Transaction
+} from "../services/transaction";
+import { getBudget, setBudget as updateBudget, type BudgetSummary } from "../services/budget";
 import { logout } from "../services/auth";
 
-type Transaction = {
-  id: number;
-  description: string;
-  cat: string;
-  amount: number;
+const EMPTY_BUDGET: BudgetSummary = {
+  budget: 0,
+  spent: 0,
+  remaining: 0,
+  status: "ok"
+};
+
+const CATEGORY_COLORS = ["#34d399", "#60a5fa", "#7c3aed", "#f97316", "#eab308", "#94a3b8"];
+const CURRENCY_FORMATTER = new Intl.NumberFormat("en-US", {
+  style: "currency",
+  currency: "USD"
+});
+const MONTH_FORMATTER = new Intl.DateTimeFormat("en-US", { month: "short" });
+
+function readToken(): string {
+  try {
+    return localStorage.getItem("token") || "";
+  } catch {
+    return "";
+  }
+}
+
+function formatCurrency(amount: number): string {
+  return CURRENCY_FORMATTER.format(amount);
+}
+
+function transactionDate(transaction: Transaction): Date | null {
+  const date = new Date(transaction.date);
+  return Number.isNaN(date.getTime()) ? null : date;
+}
+
+function isCurrentMonth(transaction: Transaction, reference = new Date()): boolean {
+  const date = transactionDate(transaction);
+  return date !== null
+    && date.getUTCFullYear() === reference.getUTCFullYear()
+    && date.getUTCMonth() === reference.getUTCMonth();
+}
+
+function monthKey(year: number, month: number): string {
+  return `${year}-${String(month + 1).padStart(2, "0")}`;
+}
+
+function formatTransactionDate(transaction: Transaction): string {
+  const date = transactionDate(transaction);
+  return date === null ? "Unknown date" : date.toLocaleDateString();
+}
+
+type CategoryBreakdown = {
+  name: string;
+  total: number;
+  percentage: number;
+  color: string;
+};
+
+type TrendBucket = {
+  key: string;
+  label: string;
+  expenses: number;
+  income: number;
 };
 
 export default function Dashboard() {
-  const [isLoggedIn, setIsLoggedIn] = useState<boolean>(() => {
-    try { return Boolean(localStorage.getItem('token')); } catch { return false; }
-  });
-  const [showUploader, setShowUploader] = useState<boolean>(false);
+  const [isLoggedIn, setIsLoggedIn] = useState<boolean>(() => Boolean(readToken()));
+  const [showUploader, setShowUploader] = useState(false);
   const [transactions, setTransactions] = useState<Transaction[]>([]);
-  const [loading, setLoading] = useState<boolean>(true);
-  const [budget, setBudget] = useState(0);
-  const [spent, setSpent] = useState(0);
-  const [remaining, setRemaining] = useState(0);
+  const [budgetSummary, setBudgetSummary] = useState<BudgetSummary>(EMPTY_BUDGET);
+  const [loading, setLoading] = useState(true);
+  const [dataError, setDataError] = useState("");
   const [budgetModalOpen, setBudgetModalOpen] = useState(false);
   const [budgetInput, setBudgetInput] = useState("");
   const [budgetError, setBudgetError] = useState("");
   const [budgetSaving, setBudgetSaving] = useState(false);
+  const [classificationInput, setClassificationInput] = useState("");
+  const [classification, setClassification] = useState<ClassificationResult | null>(null);
+  const [classificationError, setClassificationError] = useState("");
+  const [classifying, setClassifying] = useState(false);
 
+  const loadDashboard = useCallback(async () => {
+    const token = readToken();
+    if (!token) {
+      setIsLoggedIn(false);
+      setLoading(false);
+      window.location.href = "/login";
+      return;
+    }
 
-  useEffect(() => {
-    const fetchTransactions = async () => {
-      try {
-        const token = localStorage.getItem('token');
-        if (token) {
-          const result = await getTransactions(token);
-          setTransactions(result.data || result || []);
-        }
-      } catch (error) {
-        console.error('Failed to fetch transactions:', error);
-        // Fallback to dummy data if API fails
-        setTransactions([
-          { id: 1, description: "Starbucks - Coffee", cat: "Food", amount: -5.5 },
-          { id: 2, description: "Magur Transit - Bus Fare", cat: "Transport", amount: -2.75 },
-          { id: 3, description: "Supermarket - Groceries", cat: "Food", amount: -75.2 },
-          { id: 4, description: "Salary", cat: "Income", amount: 2500 },
-        ]);
-      } finally {
-        setLoading(false);
-      }
-    };
-    const token = localStorage.getItem("token") || "";
+    setIsLoggedIn(true);
+    setLoading(true);
 
-    const fetchBudget = async () => {
-      const summary = await getBudget(token);
-      setBudget(summary.budget);
-      setSpent(summary.spent ?? 0);
-      setRemaining(summary.remaining ?? 0);
-      setBudgetInput(summary.budget.toString());
-    };
+    const [transactionsResult, budgetResult] = await Promise.allSettled([
+      getTransactions(token),
+      getBudget(token)
+    ]);
+    const errors: string[] = [];
 
-    fetchBudget();
-    fetchTransactions();
+    if (transactionsResult.status === "fulfilled") {
+      setTransactions(transactionsResult.value);
+    } else {
+      setTransactions([]);
+      errors.push("Transactions could not be loaded.");
+    }
+
+    if (budgetResult.status === "fulfilled") {
+      setBudgetSummary(budgetResult.value);
+      setBudgetInput(budgetResult.value.budget.toFixed(2));
+    } else {
+      setBudgetSummary(EMPTY_BUDGET);
+      errors.push("Budget data could not be loaded.");
+    }
+
+    setDataError(errors.join(" "));
+    setLoading(false);
   }, []);
 
-  async function handleAuthClick(e: React.MouseEvent) {
-    e.preventDefault();
-    if (isLoggedIn) {
-      const token = localStorage.getItem("token") || "";
-      if (token) {
-        try {
-          await logout(token);
-        } catch (error) {
-          console.warn("Logout API call failed, clearing local session anyway.", error);
-        }
+  useEffect(() => {
+    void loadDashboard();
+  }, [loadDashboard]);
+
+  const currentMonthTransactions = useMemo(
+    () => transactions.filter((transaction) => isCurrentMonth(transaction)),
+    [transactions]
+  );
+
+  const categoryBreakdown = useMemo<CategoryBreakdown[]>(() => {
+    const totals = new Map<string, number>();
+
+    currentMonthTransactions.forEach((transaction) => {
+      if (transaction.amount >= 0) {
+        return;
       }
 
-      try { localStorage.removeItem('token'); } catch { /* ignore */ }
-      setIsLoggedIn(false);
-      window.location.href = '/login';
-    } else {
-      // go to login
-      window.location.href = '/login';
+      const name = transaction.category?.trim() || "Uncategorized";
+      totals.set(name, (totals.get(name) || 0) + Math.abs(transaction.amount));
+    });
+
+    const totalExpenses = Array.from(totals.values()).reduce((sum, value) => sum + value, 0);
+    return Array.from(totals.entries())
+      .sort(([, first], [, second]) => second - first)
+      .map(([name, total], index) => ({
+        name,
+        total,
+        percentage: totalExpenses === 0 ? 0 : (total / totalExpenses) * 100,
+        color: CATEGORY_COLORS[index % CATEGORY_COLORS.length]
+      }));
+  }, [currentMonthTransactions]);
+
+  const currentMonthExpenseTotal = useMemo(
+    () => currentMonthTransactions
+      .filter((transaction) => transaction.amount < 0)
+      .reduce((sum, transaction) => sum + Math.abs(transaction.amount), 0),
+    [currentMonthTransactions]
+  );
+
+  const trendData = useMemo<TrendBucket[]>(() => {
+    const now = new Date();
+    const months = Array.from({ length: 6 }, (_, index) => {
+      const date = new Date(Date.UTC(now.getUTCFullYear(), now.getUTCMonth() - 5 + index, 1));
+      return {
+        key: monthKey(date.getUTCFullYear(), date.getUTCMonth()),
+        label: MONTH_FORMATTER.format(date),
+        expenses: 0,
+        income: 0
+      };
+    });
+    const byMonth = new Map(months.map((month) => [month.key, month]));
+
+    transactions.forEach((transaction) => {
+      const date = transactionDate(transaction);
+      if (date === null) {
+        return;
+      }
+
+      const month = byMonth.get(monthKey(date.getUTCFullYear(), date.getUTCMonth()));
+      if (!month) {
+        return;
+      }
+
+      if (transaction.amount < 0) {
+        month.expenses += Math.abs(transaction.amount);
+      } else if (transaction.amount > 0) {
+        month.income += transaction.amount;
+      }
+    });
+
+    return months;
+  }, [transactions]);
+
+  const recentTransactions = transactions.slice(0, 5);
+  const trendMax = Math.max(
+    1,
+    ...trendData.flatMap((month) => [month.expenses, month.income])
+  );
+  const trendHasData = trendData.some((month) => month.expenses > 0 || month.income > 0);
+
+  const trendPoints = (field: "expenses" | "income") => trendData
+    .map((month, index) => {
+      const x = 12 + (index / Math.max(1, trendData.length - 1)) * 296;
+      const y = 108 - (month[field] / trendMax) * 92;
+      return `${x},${y}`;
+    })
+    .join(" ");
+
+  const handleAuthClick = async (event: MouseEvent<HTMLAnchorElement>) => {
+    event.preventDefault();
+    const token = readToken();
+
+    if (isLoggedIn && token) {
+      try {
+        await logout(token);
+      } catch (error) {
+        console.warn("Logout API call failed, clearing local session anyway.", error);
+      }
     }
-  }
-  const categories = [
-    { name: "Rent & Utilities", value: 30, color: "#34d399" },
-    { name: "Food & Dining", value: 26, color: "#60a5fa" },
-    { name: "Shopping", value: 10, color: "#7c3aed" },
-    { name: "Entertainment", value: 10, color: "#f97316" },
-    { name: "Others", value: 15, color: "#94a3b8" },
-  ];
 
-  const trendPoints = [10, 22, 18, 26, 30, 35];
+    try {
+      localStorage.removeItem("token");
+    } catch {
+      // Ignore storage failures; the login page will still be displayed.
+    }
+    setIsLoggedIn(false);
+    window.location.href = "/login";
+  };
 
-  const donutCirc = (v: number) => `${(v / 100) * 339.292}`; // circumference approx for r=54
+  const handleClassify = async (event: FormEvent<HTMLFormElement>) => {
+    event.preventDefault();
+    const description = classificationInput.trim();
+    if (!description) {
+      setClassification(null);
+      setClassificationError("Enter an expense description first.");
+      return;
+    }
+
+    const token = readToken();
+    setClassifying(true);
+    setClassificationError("");
+
+    try {
+      setClassification(await classifyTransaction(token, description));
+    } catch (error) {
+      setClassification(null);
+      setClassificationError(error instanceof Error ? error.message : "Unable to classify this expense.");
+    } finally {
+      setClassifying(false);
+    }
+  };
 
   return (
     <div className="dashboard-wrap">
-      {/* styles moved to Dashboard.css */}
-
       <div className="topbar">
         <div className="brand">
           <img src="/logo.png" alt="Finance Tracker logo" className="logo" />
-          <h2 style={{ margin: 0 }}>FINANCE-TRACKER</h2>
+          <h2>FINANCE-TRACKER</h2>
         </div>
         <nav className="nav">
           <a href="/" className="active">Dashboard</a>
           <a href="/transactions">Transactions</a>
-          <a>Expenses</a>
-          <a>Reports</a>
-          <a>Categories</a>
-          <a>Settings</a>
-          <a onClick={handleAuthClick} role="button" style={{ cursor: 'pointer' }}>{isLoggedIn ? 'Logout' : 'Login'}</a>
+          <a href="/">Expenses</a>
+          <a href="/">Reports</a>
+          <a href="/">Categories</a>
+          <a href="/">Settings</a>
+          <a href="/login" onClick={handleAuthClick} role="button">{isLoggedIn ? "Logout" : "Login"}</a>
         </nav>
       </div>
 
-      <div className="grid">
+      <main className="grid">
         <div className="column">
           <div className="row-cards">
-            <div className="card h-lg">
+            <section className="card h-lg">
               <div className="card-title">Monthly Budget</div>
-              <div className="card-value">${budget.toFixed(2)}</div>
-              <div className="card-sub" style={{ color: remaining < 0 ? "#ef4444" : "#10b981" }}>
-                Remaining: ${remaining.toFixed(2)}
+              <div className="card-value">{loading ? "—" : formatCurrency(budgetSummary.budget)}</div>
+              <div className="card-sub" style={{ color: budgetSummary.remaining < 0 ? "#ef4444" : "#10b981" }}>
+                {loading ? "Loading budget..." : `Remaining: ${formatCurrency(budgetSummary.remaining)}`}
               </div>
               <button
                 className="card-action"
                 type="button"
                 onClick={() => {
-                  setBudgetInput(budget.toFixed(2));
+                  setBudgetInput(budgetSummary.budget.toFixed(2));
                   setBudgetError("");
                   setBudgetModalOpen(true);
                 }}
               >
                 Update Budget
               </button>
-            </div>
-            <div className="card h-lg">
+            </section>
+
+            <section className="card h-lg">
               <div className="card-title">Monthly Spending</div>
-              <div className="card-value">${spent.toFixed(2)}</div>
-              <div className="card-sub" style={{ color: spent > budget ? '#ef4444' : '#6b7280' }}>
-                {spent > budget ? "Over budget" : "Tracked so far"}
+              <div className="card-value">{loading ? "—" : formatCurrency(budgetSummary.spent)}</div>
+              <div className="card-sub" style={{ color: budgetSummary.status === "over" ? "#ef4444" : "#6b7280" }}>
+                {loading ? "Loading spending..." : budgetSummary.status === "over" ? "Over budget" : "Tracked so far"}
               </div>
-            </div>
+            </section>
           </div>
 
-          <div className="card">
+          <section className="card">
             <div className="card-title">Expense Breakdown by Category</div>
-            <div className="donut-wrap" style={{ marginTop: 6 }}>
-              <div className="donut">
-                <svg viewBox="0 0 120 120">
-                  <circle cx="60" cy="60" r="54" fill="#f1f5f9" />
-                  {categories.map((c, i) => {
-                    const offset = categories.slice(0, i).reduce((s, x) => s + x.value, 0) / 100 * 339.292;
-                    return (
-                      <circle
-                        key={c.name}
-                        cx="60"
-                        cy="60"
-                        r="54"
-                        fill="transparent"
-                        stroke={c.color}
-                        strokeWidth="18"
-                        strokeDasharray={`${donutCirc(c.value)} 339.292`}
-                        strokeDashoffset={-offset}
-                        strokeLinecap="butt"
-                        transform="rotate(-90 60 60)"
-                      />
-                    );
-                  })}
-                </svg>
-              </div>
-              <div className="legend">
-                {categories.map((c) => (
-                  <div className="legend-item" key={c.name}>
-                    <div className="legend-dot" style={{ background: c.color }} />
-                    <div>
-                      <div style={{ fontSize: 14 }}>{c.name}</div>
-                      <div className="small">{c.value}%</div>
-                    </div>
+            {loading ? (
+              <div className="empty-tile">Loading category data...</div>
+            ) : categoryBreakdown.length === 0 ? (
+              <div className="empty-tile">No expenses recorded this month.</div>
+            ) : (
+              <div className="donut-wrap">
+                <div className="donut">
+                  <svg viewBox="0 0 120 120" role="img" aria-label="Expense breakdown by category">
+                    <circle cx="60" cy="60" r="54" fill="none" stroke="#e2e8f0" strokeWidth="18" />
+                    {categoryBreakdown.map((category, index) => {
+                      const offset = categoryBreakdown
+                        .slice(0, index)
+                        .reduce((sum, item) => sum + item.percentage, 0) / 100 * 339.292;
+                      return (
+                        <circle
+                          key={category.name}
+                          cx="60"
+                          cy="60"
+                          r="54"
+                          fill="none"
+                          stroke={category.color}
+                          strokeWidth="18"
+                          strokeDasharray={`${category.percentage / 100 * 339.292} 339.292`}
+                          strokeDashoffset={-offset}
+                          transform="rotate(-90 60 60)"
+                        />
+                      );
+                    })}
+                  </svg>
+                  <div className="donut-center">
+                    <strong>{formatCurrency(currentMonthExpenseTotal)}</strong>
+                    <span>This month</span>
                   </div>
-                ))}
+                </div>
+                <div className="legend">
+                  {categoryBreakdown.map((category) => (
+                    <div className="legend-item" key={category.name}>
+                      <div className="legend-dot" style={{ background: category.color }} />
+                      <div>
+                        <div className="legend-name">{category.name}</div>
+                        <div className="small">{category.percentage.toFixed(1)}% · {formatCurrency(category.total)}</div>
+                      </div>
+                    </div>
+                  ))}
+                </div>
               </div>
-            </div>
-          </div>
+            )}
+          </section>
 
-          <div className="card">
+          <section className="card">
             <div className="card-title">Expense Classification Tool</div>
-            <div className="classification">
-              <input placeholder="Enter expense details..." />
-              <button>Classify Expense</button>
-            </div>
-            <div className="small" style={{ marginTop: 10 }}>Predicted Category: Food & Dining (Confidence: 92%)</div>
-          </div>
+            <form className="classification" onSubmit={handleClassify}>
+              <input
+                value={classificationInput}
+                onChange={(event) => setClassificationInput(event.target.value)}
+                placeholder="Enter expense details..."
+                aria-label="Expense details"
+              />
+              <button type="submit" disabled={classifying || !classificationInput.trim()}>
+                {classifying ? "Classifying..." : "Classify Expense"}
+              </button>
+            </form>
+            {classification && (
+              <div className="classification-result">
+                <span>Predicted category</span>
+                <strong>{classification.category}</strong>
+              </div>
+            )}
+            {classificationError && <div className="classification-error">{classificationError}</div>}
+            {!classification && !classificationError && (
+              <div className="small classification-helper">Predictions come from your connected classification service.</div>
+            )}
+          </section>
         </div>
 
         <div className="column">
-          <div className="card">
-            <div className="card-title" style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
-              Recent Transactions
-              <button 
-                className="auth-button" 
-                style={{ fontSize: '12px', padding: '6px 10px' }}
-                onClick={() => setShowUploader(!showUploader)}
+          <section className="card">
+            <div className="card-title recent-title">
+              <span>Recent Transactions</span>
+              <button
+                className="auth-button"
+                type="button"
+                onClick={() => setShowUploader((visible) => !visible)}
               >
-                Upload Statement
+                {showUploader ? "Close Upload" : "Upload Statement"}
               </button>
             </div>
             {showUploader && (
-              <div style={{ marginBottom: 12 }}>
-                <StatementUploader token={localStorage.getItem('token') || ''} />
+              <div className="uploader-wrap">
+                <StatementUploader token={readToken()} onUploaded={loadDashboard} />
               </div>
             )}
             {loading ? (
-              <p style={{ textAlign: 'center', color: '#6b7280' }}>Loading transactions...</p>
+              <p className="tile-message">Loading transactions...</p>
+            ) : recentTransactions.length === 0 ? (
+              <p className="tile-message">No transactions found. Add one from the Transactions page.</p>
             ) : (
-            <ul className="transactions" style={{ listStyle: 'none', padding: 0, marginTop: 12 }}>
-              {transactions.map((t) => (
-                <li key={t.id || Math.random()}>
-                  <div className="tx-left">
-                    <div className="tx-dot">{(t.description || 'T').charAt(0)}</div>
-                    <div>
-                      <div className="tx-desc">{t.description || 'Unknown Transaction'} <span style={{ color: '#94a3b8', fontSize: 12 }}>({t.amount && t.amount < 0 ? `$${Math.abs(t.amount)}` : `$${t.amount || 0}`})</span></div>
-                      <div className="tx-cat">{t.cat || 'Uncategorized'}</div>
-                    </div>
-                  </div>
-                  <div style={{ color: (t.amount && t.amount < 0) ? '#ef4444' : '#10b981' }}>{t.amount && t.amount < 0 ? `-$${Math.abs(t.amount)}` : `$${t.amount || 0}`}</div>
-                </li>
-              ))}
-            </ul>
+              <ul className="transactions">
+                {recentTransactions.map((transaction) => {
+                  const isExpense = transaction.amount < 0;
+                  const amount = Math.abs(transaction.amount);
+                  return (
+                    <li key={transaction.id}>
+                      <div className="tx-left">
+                        <div className="tx-dot">{(transaction.description || "T").charAt(0).toUpperCase()}</div>
+                        <div>
+                          <div className="tx-desc">{transaction.description || "Unknown transaction"}</div>
+                          <div className="tx-cat">{transaction.category || "Uncategorized"} · {formatTransactionDate(transaction)}</div>
+                        </div>
+                      </div>
+                      <div className={isExpense ? "amount-expense" : "amount-income"}>
+                        {isExpense ? "-" : "+"}{formatCurrency(amount)}
+                      </div>
+                    </li>
+                  );
+                })}
+              </ul>
             )}
-          </div>
+          </section>
 
-          <div className="card">
-            <div className="card-title">Spending Trends</div>
-            <div className="chart" style={{ marginTop: 10 }}>
-              <svg viewBox="0 0 300 100" preserveAspectRatio="none" style={{ width: '100%', height: 120 }}>
-                <polyline
-                  fill="none"
-                  stroke="#60a5fa"
-                  strokeWidth={3}
-                  points={trendPoints.map((p, i) => `${(i / (trendPoints.length - 1)) * 300},${100 - (p / 40) * 100}`).join(' ')}
-                />
-                <polyline
-                  fill="none"
-                  stroke="#10b981"
-                  strokeWidth={2}
-                  points={trendPoints.map((p, i) => `${(i / (trendPoints.length - 1)) * 300},${100 - (p / 40) * 100 + 12}`).join(' ')}
-                />
-              </svg>
+          <section className="card">
+            <div className="card-title">Spending Trends <span className="small">· last 6 months</span></div>
+            <div className="chart" aria-label="Spending trends for the last six months">
+              {loading ? (
+                <div className="empty-chart">Loading trend data...</div>
+              ) : trendHasData ? (
+                <svg viewBox="0 0 320 140" preserveAspectRatio="none" role="img">
+                  <line x1="12" y1="108" x2="308" y2="108" stroke="#e2e8f0" strokeWidth="1" />
+                  <line x1="12" y1="62" x2="308" y2="62" stroke="#f1f5f9" strokeWidth="1" />
+                  <polyline fill="none" stroke="#60a5fa" strokeWidth="3" points={trendPoints("expenses")} />
+                  <polyline fill="none" stroke="#10b981" strokeWidth="2.5" points={trendPoints("income")} />
+                  {trendData.map((month, index) => {
+                    const x = 12 + (index / Math.max(1, trendData.length - 1)) * 296;
+                    const expenseY = 108 - (month.expenses / trendMax) * 92;
+                    const incomeY = 108 - (month.income / trendMax) * 92;
+                    return (
+                      <g key={month.key}>
+                        <circle cx={x} cy={expenseY} r="3" fill="#60a5fa" />
+                        <circle cx={x} cy={incomeY} r="3" fill="#10b981" />
+                      </g>
+                    );
+                  })}
+                </svg>
+              ) : (
+                <div className="empty-chart">No income or expense history yet.</div>
+              )}
+              <div className="trend-labels">
+                {trendData.map((month) => <span key={month.key}>{month.label}</span>)}
+              </div>
               <div className="trend-legend">
-                <span><i style={{ width: 10, height: 6, background: '#60a5fa', display: 'inline-block', borderRadius: 2 }} /> Expenses</span>
-                <span><i style={{ width: 10, height: 6, background: '#10b981', display: 'inline-block', borderRadius: 2 }} /> Income</span>
+                <span><i className="trend-line expense-line" /> Expenses</span>
+                <span><i className="trend-line income-line" /> Income</span>
               </div>
             </div>
-          </div>
+          </section>
 
+          {dataError && <div className="dashboard-error" role="alert">{dataError}</div>}
         </div>
-      </div>
+      </main>
 
       {budgetModalOpen && (
-        <div className="dashboard-modal-overlay" role="dialog" aria-modal="true">
+        <div className="dashboard-modal-overlay" role="dialog" aria-modal="true" aria-labelledby="budget-dialog-title">
           <div className="dashboard-modal">
-            <h3>Update Monthly Budget</h3>
+            <h3 id="budget-dialog-title">Update Monthly Budget</h3>
             <form
               onSubmit={async (event) => {
                 event.preventDefault();
-                const token = localStorage.getItem("token") || "";
+                const token = readToken();
+                const nextBudget = Number(budgetInput);
                 if (!token) {
                   setBudgetError("You must be logged in to update the budget.");
                   return;
                 }
-
-                const nextBudget = Number(budgetInput);
                 if (!Number.isFinite(nextBudget) || nextBudget < 0) {
                   setBudgetError("Enter a valid non-negative number.");
                   return;
@@ -280,23 +488,11 @@ export default function Dashboard() {
 
                 setBudgetSaving(true);
                 setBudgetError("");
-
                 try {
-                  const summary = await updateBudget(token, nextBudget);
-                  const updatedBudget = typeof summary.budget === "number" ? summary.budget : nextBudget;
-                  const updatedRemaining = typeof summary.remaining === "number"
-                    ? summary.remaining
-                    : typeof summary.spent === "number"
-                      ? updatedBudget - summary.spent
-                      : updatedBudget;
-
-                  setBudget(updatedBudget);
-                  setSpent(summary.spent ?? spent);
-                  setRemaining(updatedRemaining);
+                  setBudgetSummary(await updateBudget(token, nextBudget));
                   setBudgetModalOpen(false);
-                } catch (err) {
-                  const message = err instanceof Error && err.message ? err.message : "Unable to update budget.";
-                  setBudgetError(message);
+                } catch (error) {
+                  setBudgetError(error instanceof Error ? error.message : "Unable to update budget.");
                 } finally {
                   setBudgetSaving(false);
                 }
@@ -316,23 +512,12 @@ export default function Dashboard() {
                   required
                 />
               </label>
-
               {budgetError && <p className="modal-error">{budgetError}</p>}
-
               <div className="dashboard-modal-actions">
-                <button
-                  type="button"
-                  className="secondary-btn"
-                  onClick={() => setBudgetModalOpen(false)}
-                  disabled={budgetSaving}
-                >
+                <button type="button" className="secondary-btn" onClick={() => setBudgetModalOpen(false)} disabled={budgetSaving}>
                   Cancel
                 </button>
-                <button
-                  type="submit"
-                  className="primary-btn"
-                  disabled={budgetSaving}
-                >
+                <button type="submit" className="primary-btn" disabled={budgetSaving}>
                   {budgetSaving ? "Saving..." : "Save Budget"}
                 </button>
               </div>
