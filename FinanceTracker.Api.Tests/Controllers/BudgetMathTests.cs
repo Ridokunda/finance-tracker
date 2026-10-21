@@ -3,6 +3,7 @@ using System.Text.Json;
 using FinanceTracker.Api.Controllers;
 using FinanceTracker.Api.Data;
 using FinanceTracker.Api.Models;
+using FinanceTracker.Api.Services;
 using Microsoft.AspNetCore.Http;
 using Microsoft.AspNetCore.Mvc;
 using Microsoft.EntityFrameworkCore;
@@ -17,7 +18,7 @@ public class BudgetMathTests
     {
         await using var db = CreateDbContext();
 
-        var now = DateTime.UtcNow;
+        var now = FinanceRules.Month().AddDays(10);
 
         db.MonthlyBudgets.Add(new MonthlyBudget
         {
@@ -36,13 +37,13 @@ public class BudgetMathTests
 
         await db.SaveChangesAsync();
 
-        var controller = new BudgetController(db);
+        var controller = new BudgetController(db, new MonthlyAnalytics(db));
         AttachUser(controller, userId: 1);
 
         var result = await controller.GetBudgetSummary();
 
         var ok = Assert.IsType<OkObjectResult>(result);
-        var summary = Assert.IsType<BudgetController.BudgetSummaryResponse>(ok.Value);
+        var summary = Assert.IsType<MonthlySummary>(ok.Value);
 
         Assert.Equal(1000m, summary.Budget);
         Assert.Equal(250m, summary.Spent);
@@ -75,7 +76,7 @@ public class BudgetMathTests
 
         await db.SaveChangesAsync();
 
-        var controller = new StatementController(db);
+        var controller = new StatementController(db, new StatementParser(), new ClassifierClient(new HttpClient()), new MonthlyAnalytics(db));
         AttachUser(controller, userId: 1);
 
         var result = await controller.GetMonthlyBudget(year, month);

@@ -14,3 +14,12 @@ finance-tracker-frontend/node_modules/
 
 # Environment Variables
 *.env
+
+# Build, test and local environments
+finance-tracker-frontend/dist/
+finance-tracker-frontend/test-results/
+finance-tracker-frontend/playwright-report/
+.venv/
+__pycache__/
+*.pyc
+.artifacts/

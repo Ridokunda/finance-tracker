@@ -1,96 +1,80 @@
-import { useState, type FormEvent, type MouseEvent } from "react";
-import { register, logout } from "../services/auth";
-import './Auth.css';
-import './Dashboard.css';
-
+import { useState } from "react";
+import { register } from "../services/auth";
+import "./Auth.css";
+import "./Dashboard.css";
 export default function Signup() {
   const [username, setUsername] = useState("");
   const [passwordHash, setPassword] = useState("");
-  const [message, setMessage] = useState("");
-  const [isLoggedIn, setIsLoggedIn] = useState<boolean>(() => {
-    try { return Boolean(localStorage.getItem('token')); } catch { return false; }
-  });
-
-  async function handleAuthClick(e: MouseEvent) {
-    e.preventDefault();
-    if (isLoggedIn) {
-      const token = localStorage.getItem("token") || "";
-      if (token) {
-        try {
-          await logout(token);
-        } catch (error) {
-          console.warn("Logout API call failed, clearing local session anyway.", error);
-        }
-      }
-
-      try { localStorage.removeItem('token'); } catch { /* ignore */ }
-      setIsLoggedIn(false);
-      window.location.href = '/login';
-    } else {
-      window.location.href = '/login';
-    }
-  }
-
-  async function handleSignup(e : FormEvent<HTMLFormElement>) {
-    e.preventDefault();
-
-    try {
-      await register({ username, passwordHash });
-      setMessage("successfully registered");
-      setTimeout(() => {
-        window.location.href = '/login';
-      }, 1200);
-    
-    } catch {
-      setMessage('Registration failed');
-    }
-  }
-
+  const [error, setError] = useState("");
+  const [busy, setBusy] = useState(false);
   return (
     <div className="dashboard-wrap">
-      <div className="topbar">
+      <header className="topbar">
         <div className="brand">
-          <div className="logo" />
-          <h2 style={{ margin: 0 }}>FINANCE-TRACKER</h2>
+          <img className="logo" src="/logo.png" alt="" />
+          <h2>FINANCE-TRACKER</h2>
         </div>
         <nav className="nav">
-          <a>Dashboard</a>
-          <a>Expenses</a>
-          <a>Reports</a>
-          <a>Categories</a>
-          <a>Settings</a>
-          <a onClick={handleAuthClick} role="button" style={{ cursor: 'pointer' }}>{isLoggedIn ? 'Logout' : 'Login'}</a>
+          <a href="/login">Login</a>
+          <a href="/signup">Sign up</a>
         </nav>
-      </div>
-
-      <div className="auth-wrapper">
+      </header>
+      <main className="auth-wrapper">
         <div className="card auth-card">
-          <form onSubmit={handleSignup}>
-            <h2>Sign Up</h2>
-
-          <input
-            className="auth-input"
-            type="text"
-            placeholder="Username"
-            value={username}
-            onChange={e => setUsername(e.target.value)}
-          />
-
-          <input
-            className="auth-input"
-            type="password"
-            placeholder="Password"
-            value={passwordHash}
-            onChange={e => setPassword(e.target.value)}
-          />
-
-            <button className="auth-button" type="submit">Create Account</button>
-
-            {message && <p className="auth-help">{message}</p>}
+          <form
+            onSubmit={async (event) => {
+              event.preventDefault();
+              setBusy(true);
+              setError("");
+              try {
+                await register({ username, passwordHash });
+                location.assign("/login");
+              } catch (error) {
+                setError(
+                  (error as Error).message ||
+                    "Registration failed. Please try again.",
+                );
+              } finally {
+                setBusy(false);
+              }
+            }}
+          >
+            <h1>Create account</h1>
+            <label>
+              Username
+              <input
+                className="auth-input"
+                autoComplete="username"
+                required
+                value={username}
+                onChange={(e) => setUsername(e.target.value)}
+              />
+            </label>
+            <label>
+              Password
+              <input
+                className="auth-input"
+                type="password"
+                autoComplete="new-password"
+                required
+                value={passwordHash}
+                onChange={(e) => setPassword(e.target.value)}
+              />
+            </label>
+            <button className="auth-button" disabled={busy}>
+              {busy ? "Creating…" : "Create account"}
+            </button>
+            {error && (
+              <p role="alert" className="auth-error">
+                {error}
+              </p>
+            )}
+            <p>
+              <a href="/login">Back to login</a>
+            </p>
           </form>
         </div>
-      </div>
+      </main>
     </div>
   );
 }
-

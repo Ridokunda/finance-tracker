@@ -3,6 +3,7 @@ using Microsoft.EntityFrameworkCore;
 using Microsoft.AspNetCore.Authentication.JwtBearer;
 using Microsoft.IdentityModel.Tokens;
 using System.Text;
+using FinanceTracker.Api.Services;
 
 
 var builder = WebApplication.CreateBuilder(args);
@@ -12,13 +13,20 @@ builder.Services.AddDbContext<ApplicationDbContext>(options =>
     options.UseSqlServer(builder.Configuration.GetConnectionString("DefaultConnection")));
 
 builder.Services.AddControllers();
+builder.Services.AddScoped<MonthlyAnalytics>();
+builder.Services.AddSingleton<StatementParser>();
+builder.Services.AddHostedService<ImportCleanup>();
+builder.Services.AddHttpClient<IClassifierClient, ClassifierClient>(client => {
+    client.BaseAddress = new Uri(builder.Configuration["Classifier:BaseUrl"] ?? "http://localhost:8000/");
+    client.Timeout = TimeSpan.FromSeconds(3);
+});
 // Learn more about configuring Swagger/OpenAPI at https://aka.ms/aspnetcore/swashbuckle
 builder.Services.AddEndpointsApiExplorer();
 builder.Services.AddSwaggerGen();
 
 
 var jwtSettings = builder.Configuration.GetSection("Jwt");
-var key = Encoding.UTF8.GetBytes(jwtSettings["Key"]);
+var key = Encoding.UTF8.GetBytes(jwtSettings["Key"] ?? throw new InvalidOperationException("Jwt:Key is required."));
 
 builder.Services.AddAuthentication(options =>
 {
@@ -64,6 +72,14 @@ builder.Services.AddAuthentication(options =>
 
 
 var app = builder.Build();
+if (args.Contains("--migrate") || args.Contains("--demo-seed"))
+{
+    using var scope = app.Services.CreateScope();
+    var db = scope.ServiceProvider.GetRequiredService<ApplicationDbContext>();
+    await db.Database.MigrateAsync();
+    if (args.Contains("--demo-seed")) await DemoSeeder.Seed(db);
+    return;
+}
 
 // Configure the HTTP request pipeline.
 if (app.Environment.IsDevelopment())
@@ -76,7 +92,7 @@ app.UseAuthentication();
 
 
 
-app.UseHttpsRedirection();
+if (!app.Environment.IsDevelopment()) app.UseHttpsRedirection();
 
 app.UseAuthorization();
 

@@ -24,6 +24,7 @@ export async function login(data: { username: string; passwordHash: string }) {
     body: JSON.stringify(data)
   });
 
+  if (!res.ok) throw new Error(await res.text() || "Login failed. Try again.");
   return res.json();
 }
 export async function logout(token: string) {

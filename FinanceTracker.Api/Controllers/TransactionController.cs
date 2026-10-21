@@ -5,6 +5,7 @@ using FinanceTracker.Api.Models;
 using Microsoft.AspNetCore.Authorization;
 using System.Security.Claims;
 using System.Net.Http.Json;
+using FinanceTracker.Api.Services;
 
 namespace FinanceTracker.Api.Controllers
 {
@@ -13,17 +14,15 @@ namespace FinanceTracker.Api.Controllers
     public class TransactionController : ControllerBase
     {
         private readonly ApplicationDbContext _db;
-        private static readonly HttpClient _classifierClient = new HttpClient
-        {
-            BaseAddress = new Uri("http://localhost:8000/")
-        };
-        public TransactionController(ApplicationDbContext db)
+        private readonly IClassifierClient _classifier;
+        public TransactionController(ApplicationDbContext db, IClassifierClient classifier)
         {
             _db = db;
+            _classifier = classifier;
         }
         [Authorize]
         [HttpGet]
-        public IActionResult Get([FromQuery] string? type, [FromQuery] string? category)
+        public IActionResult Get([FromQuery] string? type, [FromQuery] string? category, [FromQuery] DateTime? from = null, [FromQuery] DateTime? to = null, [FromQuery] string? search = null)
         {
             var userIdValue = User.FindFirstValue("UserId");
             if (!int.TryParse(userIdValue, out var userId))
@@ -32,6 +31,10 @@ namespace FinanceTracker.Api.Controllers
             }
 
             var query = _db.Transactions.Where(t => t.UserId == userId);
+            if (from > to) return BadRequest("Start date must be on or before end date.");
+            if (from != null) query = query.Where(t => t.Date >= from.Value.Date);
+            if (to != null) query = query.Where(t => t.Date <= to.Value.Date);
+            if (!string.IsNullOrWhiteSpace(search)) query = query.Where(t => t.Description.Contains(search.Trim()));
 
             if (!string.IsNullOrWhiteSpace(type))
             {
@@ -49,7 +52,7 @@ namespace FinanceTracker.Api.Controllers
             if (!string.IsNullOrWhiteSpace(category))
             {
                 var categoryLower = category.ToLowerInvariant();
-                query = query.Where(t => t.Category != null && t.Category.ToLowerInvariant() == categoryLower);
+                query = query.Where(t => t.Category != null && t.Category.ToLower() == categoryLower);
             }
 
             var transactions = query
@@ -76,32 +79,8 @@ namespace FinanceTracker.Api.Controllers
                 return BadRequest("Description is required.");
             }
 
-            try
-            {
-                using var response = await _classifierClient.PostAsJsonAsync(
-                    "predict",
-                    new { description = request.Description.Trim() });
-
-                if (!response.IsSuccessStatusCode)
-                {
-                    return StatusCode(StatusCodes.Status503ServiceUnavailable,
-                        "The classification service is unavailable.");
-                }
-
-                var prediction = await response.Content.ReadFromJsonAsync<PredictionResponse>();
-                if (prediction == null || string.IsNullOrWhiteSpace(prediction.Category))
-                {
-                    return StatusCode(StatusCodes.Status503ServiceUnavailable,
-                        "The classification service returned no category.");
-                }
-
-                return Ok(new { category = prediction.Category });
-            }
-            catch (HttpRequestException)
-            {
-                return StatusCode(StatusCodes.Status503ServiceUnavailable,
-                    "The classification service is unavailable.");
-            }
+            var category = await _classifier.Suggest(request.Description.Trim(), HttpContext.RequestAborted);
+            return category == null ? StatusCode(503, new { message = "The classification service is unavailable. Choose a category manually." }) : Ok(new { category });
         }
 
         [Authorize]
@@ -124,7 +103,7 @@ namespace FinanceTracker.Api.Controllers
                 return BadRequest("Description is required.");
             }
 
-            if (request.Amount == 0)
+            if (request.Amount == 0 || !FinanceRules.ValidMoney(request.Amount) || request.Description.Length > 2000 || request.Category?.Length > 100)
             {
                 return BadRequest("Amount must be non-zero.");
             }
@@ -132,10 +111,10 @@ namespace FinanceTracker.Api.Controllers
             var entity = new Transaction
             {
                 UserId = userId,
-                Date = request.Date == default ? DateTime.UtcNow : request.Date,
+                Date = request.Date == default ? FinanceRules.Today : request.Date.Date,
                 Description = request.Description.Trim(),
                 Amount = request.Amount,
-                Category = string.IsNullOrWhiteSpace(request.Category) ? "Uncategorized" : request.Category.Trim()
+                Category = FinanceRules.Category(request.Category, _db.Transactions.Where(t => t.UserId == userId).Select(t => t.Category).Distinct().ToList())
             };
 
             _db.Transactions.Add(entity);
@@ -171,7 +150,7 @@ namespace FinanceTracker.Api.Controllers
                 return BadRequest("Description is required.");
             }
 
-            if (request.Amount == 0)
+            if (request.Amount == 0 || !FinanceRules.ValidMoney(request.Amount) || request.Description.Length > 2000 || request.Category?.Length > 100)
             {
                 return BadRequest("Amount must be non-zero.");
             }
@@ -182,10 +161,10 @@ namespace FinanceTracker.Api.Controllers
                 return NotFound("Transaction not found.");
             }
 
-            entity.Date = request.Date == default ? entity.Date : request.Date;
+            entity.Date = request.Date == default ? entity.Date : request.Date.Date;
             entity.Description = request.Description.Trim();
             entity.Amount = request.Amount;
-            entity.Category = string.IsNullOrWhiteSpace(request.Category) ? "Uncategorized" : request.Category.Trim();
+            entity.Category = FinanceRules.Category(request.Category, _db.Transactions.Where(t => t.UserId == userId).Select(t => t.Category).Distinct().ToList());
 
             _db.SaveChanges();
 
@@ -226,7 +205,7 @@ namespace FinanceTracker.Api.Controllers
         }
 
         [Authorize]
-        [HttpGet("balance")]
+        [HttpGet("net-cash-flow")]
         public IActionResult GetBalance()
         {
             var userId = int.Parse(User.Claims.First(c => c.Type == "UserId").Value);
@@ -236,7 +215,16 @@ namespace FinanceTracker.Api.Controllers
 
             var balance = income + expenses;
 
-            return Ok(new { balance });
+            return Ok(new { netCashFlow = balance });
+        }
+
+        [Authorize, HttpGet("categories")]
+        public IActionResult Categories()
+        {
+            var userId = int.Parse(User.FindFirst("UserId")!.Value);
+            var existing = _db.Transactions.Where(t => t.UserId == userId).Select(t => t.Category).Distinct().ToList();
+            var budgetNames = _db.MonthlyBudgets.Where(b => b.UserId == userId).SelectMany(b => b.CategoryLimits).Select(c => c.Category).ToList();
+            return Ok(FinanceRules.Categories.Concat(existing).Concat(budgetNames).Select(c => FinanceRules.Category(c)).Distinct(StringComparer.OrdinalIgnoreCase).OrderBy(c => c));
         }
 
     }

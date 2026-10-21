@@ -9,7 +9,10 @@ namespace FinanceTracker.Api.Models
         public int Month { get; set; }
 
         public decimal LimitAmount { get; set; }
+        public bool NeedsReconfirmation { get; set; }
+        public byte[] Version { get; set; } = [];
+        public List<CategoryLimit> CategoryLimits { get; set; } = [];
 
-        public AppUser User { get; set; }
+        public AppUser User { get; set; } = null!;
     }
 }

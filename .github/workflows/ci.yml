@@ -1,0 +1,89 @@
+name: Checks
+on:
+  push:
+  pull_request:
+permissions:
+  contents: read
+jobs:
+  frontend:
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: finance-tracker-frontend
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+          cache: npm
+          cache-dependency-path: finance-tracker-frontend/package-lock.json
+      - run: npm ci
+      - run: npm run lint
+      - run: npm run build
+  classifier:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+          cache: pip
+          cache-dependency-path: finance-tracker-model/requirements-lock.txt
+      - run: pip install -r finance-tracker-model/requirements-lock.txt
+      - run: python -m pytest finance-tracker-model -q
+  backend-and-browser:
+    runs-on: ubuntu-latest
+    services:
+      sqlserver:
+        image: mcr.microsoft.com/mssql/server:2022-latest
+        env:
+          ACCEPT_EULA: Y
+          MSSQL_SA_PASSWORD: Finance_Test_Pass123!
+        ports:
+          - 1433:1433
+        options: >-
+          --health-cmd="/opt/mssql-tools18/bin/sqlcmd -S localhost -U sa -P 'Finance_Test_Pass123!' -C -Q 'SELECT 1'"
+          --health-interval=10s
+          --health-timeout=5s
+          --health-retries=20
+    env:
+      FINANCE_TEST_SQL: Server=localhost,1433;User Id=sa;Password=Finance_Test_Pass123!;TrustServerCertificate=True
+      ConnectionStrings__DefaultConnection: Server=localhost,1433;Database=FinanceTrackerPortfolioDemo;User Id=sa;Password=Finance_Test_Pass123!;TrustServerCertificate=True
+      ASPNETCORE_ENVIRONMENT: Development
+      Classifier__BaseUrl: http://127.0.0.1:8009/
+      Logging__LogLevel__Default: Warning
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-dotnet@v4
+        with:
+          dotnet-version: '8.0.x'
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+          cache: npm
+          cache-dependency-path: finance-tracker-frontend/package-lock.json
+      - run: dotnet test FinanceTracker.Api.Tests -c Release --logger trx
+      - run: dotnet run --project FinanceTracker.Api -c Release --no-launch-profile -- --demo-seed
+      - run: |
+          dotnet run --project FinanceTracker.Api -c Release --no-build --no-launch-profile -- --urls http://127.0.0.1:5260 > api.log 2>&1 &
+          for attempt in $(seq 1 30); do
+            if curl --fail --silent http://127.0.0.1:5260/api/test; then exit 0; fi
+            sleep 1
+          done
+          cat api.log
+          exit 1
+      - run: npm ci
+        working-directory: finance-tracker-frontend
+      - run: npx playwright install --with-deps chromium
+        working-directory: finance-tracker-frontend
+      - run: npx playwright test
+        working-directory: finance-tracker-frontend
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: verification-results
+          path: |
+            FinanceTracker.Api.Tests/TestResults/
+            finance-tracker-frontend/test-results/
+            docs/screenshots/
+            api.log

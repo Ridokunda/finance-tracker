@@ -8,7 +8,7 @@ namespace FinanceTracker.Api.Models
         public int Id { get; set; }
 
         [Required]
-        public string Token { get; set; }
+        public string Token { get; set; } = string.Empty;
 
         public DateTime ExpiresAt { get; set; }
     }

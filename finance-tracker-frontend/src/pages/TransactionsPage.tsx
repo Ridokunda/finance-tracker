@@ -1,507 +1,279 @@
-import { useEffect, useState, useCallback } from "react";
-import type { ChangeEvent, FormEvent, MouseEvent } from "react";
-import { createTransaction, getTransactions, updateTransaction } from "../services/transaction";
-import { uploadStatement } from "../services/statement";
-import { logout } from "../services/auth";
-import TransactionFilters from "../components/TransactionFilters.tsx";
-import TransactionsList from "../components/TransactionsList.tsx";
+import { useCallback, useEffect, useState } from "react";
+import {
+  classifyTransaction,
+  createTransaction,
+  getTransactions,
+  updateTransaction,
+} from "../services/transaction";
+import type { Transaction } from "../services/transaction";
+import { initialMonth, monthRange, today, token } from "../services/finance";
+import Navigation from "../components/Navigation";
+import MonthSelector from "../components/MonthSelector";
+import CategorySelect from "../components/CategorySelect";
+import Dialog from "../components/Dialog";
+import StatementUploader from "../components/StatementUploader";
+import TransactionsList from "../components/TransactionsList";
 import "./Dashboard.css";
-import "./TransactionsPage.css";
-
-interface Transaction {
-  id: number;
-  date: string;
-  description: string;
-  amount: number;
-  category: string;
-}
-
-interface TransactionFormState {
-  date: string;
-  description: string;
-  category: string;
-  amount: string;
-}
-
-const createInitialFormState = (): TransactionFormState => ({
-  date: new Date().toISOString().split("T")[0],
-  description: "",
-  category: "",
-  amount: ""
-});
-
-type ModalMode = "transaction" | "statement";
-type TransactionDirection = "income" | "expense";
-
-function normalizeTransactions(payload: unknown): Transaction[] {
-  if (Array.isArray(payload)) {
-    return payload as Transaction[];
-  }
-
-  if (payload && typeof payload === "object") {
-    const record = payload as Record<string, unknown>;
-    if (Array.isArray(record.data)) {
-      return record.data as Transaction[];
-    }
-    if (Array.isArray(record.$values)) {
-      return record.$values as Transaction[];
-    }
-  }
-
-  return [];
-}
-
 export default function TransactionsPage() {
+  const [month, setMonth] = useState(initialMonth);
+  const [range, setRange] = useState(() => monthRange(initialMonth()));
+  const [category, setCategory] = useState(
+    () => new URLSearchParams(location.search).get("category") || "",
+  );
+  const [type, setType] = useState("");
+  const [search, setSearch] = useState("");
   const [transactions, setTransactions] = useState<Transaction[]>([]);
-  const [token, setToken] = useState<string>("");
-  const [isLoggedIn, setIsLoggedIn] = useState<boolean>(() => {
-    try {
-      return Boolean(localStorage.getItem("token"));
-    } catch {
-      return false;
-    }
-  });
-  const [loading, setLoading] = useState<boolean>(true);
-  const [error, setError] = useState<string>("");
-  const [isModalOpen, setModalOpen] = useState<boolean>(false);
-  const [formData, setFormData] = useState<TransactionFormState>(createInitialFormState);
-  const [formSubmitting, setFormSubmitting] = useState<boolean>(false);
-  const [formError, setFormError] = useState<string>("");
-  const [refreshKey, setRefreshKey] = useState<number>(0);
-  const [modalMode, setModalMode] = useState<ModalMode>("transaction");
-  const [transactionDirection, setTransactionDirection] = useState<TransactionDirection>("expense");
-  const [editingTransactionId, setEditingTransactionId] = useState<number | null>(null);
-  const [statementFile, setStatementFile] = useState<File | null>(null);
-
-  useEffect(() => {
-    let storedToken = "";
-    try {
-      storedToken = localStorage.getItem("token") || "";
-    } catch {
-      storedToken = "";
-    }
-
-    if (!storedToken) {
-      window.location.href = "/login";
-      return;
-    }
-
-    setToken(storedToken);
-    setIsLoggedIn(true);
-  }, []);
-
-  useEffect(() => {
-    if (!token) {
-      return;
-    }
-
-    const load = async () => {
+  const [loading, setLoading] = useState(true);
+  const [error, setError] = useState("");
+  const [refresh, setRefresh] = useState(0);
+  const [showImport, setShowImport] = useState(false);
+  const [edit, setEdit] = useState<Partial<Transaction> | null>(null);
+  const [busy, setBusy] = useState(false);
+  const [formError, setFormError] = useState("");
+  const [suggestion, setSuggestion] = useState("");
+  const load = useCallback(
+    async (signal?: AbortSignal) => {
       setLoading(true);
-      try {
-        const data = await getTransactions(token);
-        setTransactions(normalizeTransactions(data));
-        setError("");
-      } catch (err) {
-        console.error("Failed to fetch transactions", err);
-        setError("Unable to fetch transactions right now.");
-        setTransactions([]);
-      } finally {
-        setLoading(false);
-      }
-    };
-
-    load();
-  }, [token]);
-
-  const handleAuthClick = async (e: MouseEvent<HTMLAnchorElement>) => {
-    e.preventDefault();
-    if (isLoggedIn) {
-      if (token) {
-        try {
-          await logout(token);
-        } catch (error) {
-          console.warn("Logout API call failed, clearing local session anyway.", error);
-        }
-      }
-
-      try {
-        localStorage.removeItem("token");
-      } catch {
-        /* ignore */
-      }
-      setIsLoggedIn(false);
-    }
-    window.location.href = "/login";
-  };
-
-  const handleFiltersUpdate = useCallback((data: unknown[]) => {
-    setTransactions(normalizeTransactions(data));
-    setLoading(false);
-    setError("");
-  }, []);
-
-  const handleFilterError = useCallback((message: string) => {
-    setError(message);
-  }, []);
-
-  const handleAddClick = () => {
-    setModalMode("transaction");
-    setEditingTransactionId(null);
-    setTransactionDirection("expense");
-    setStatementFile(null);
-    setFormData(createInitialFormState());
-    setFormError("");
-    setModalOpen(true);
-  };
-
-  const handleEditClick = (transaction: Transaction) => {
-    setModalMode("transaction");
-    setEditingTransactionId(transaction.id);
-    setTransactionDirection(transaction.amount < 0 ? "expense" : "income");
-    setStatementFile(null);
-    setFormError("");
-    setFormData({
-      date: transaction.date ? new Date(transaction.date).toISOString().split("T")[0] : createInitialFormState().date,
-      description: transaction.description,
-      category: transaction.category || "",
-      amount: Math.abs(transaction.amount).toString()
-    });
-    setModalOpen(true);
-  };
-
-  const handleModalClose = () => {
-    setModalOpen(false);
-    setFormError("");
-    setModalMode("transaction");
-    setEditingTransactionId(null);
-    setTransactionDirection("expense");
-    setFormData(createInitialFormState());
-    setStatementFile(null);
-  };
-
-  const handleModeChange = (mode: ModalMode) => {
-    if (mode === modalMode) {
-      return;
-    }
-
-    setModalMode(mode);
-    setFormError("");
-
-    if (mode === "transaction") {
-      setEditingTransactionId(null);
-      setTransactionDirection("expense");
-      setFormData(createInitialFormState());
-    } else {
-      setEditingTransactionId(null);
-      setStatementFile(null);
-    }
-  };
-
-  const handleFormChange = (field: keyof TransactionFormState) => (event: ChangeEvent<HTMLInputElement>) => {
-    const { value } = event.target;
-    setFormData((prev) => ({ ...prev, [field]: value }));
-  };
-
-  const handleFileChange = (event: ChangeEvent<HTMLInputElement>) => {
-    const [file] = event.target.files || [];
-    setStatementFile(file ?? null);
-  };
-
-  const handleFormSubmit = async (event: FormEvent<HTMLFormElement>) => {
-    event.preventDefault();
-
-    if (!token) {
-      setFormError("Authentication required.");
-      return;
-    }
-
-    if (modalMode === "transaction") {
-      const description = formData.description.trim();
-      if (!description) {
-        setFormError("Description is required.");
-        return;
-      }
-
-      const amountValue = Number(formData.amount);
-      if (!Number.isFinite(amountValue) || amountValue === 0) {
-        setFormError("Amount must be a non-zero number.");
-        return;
-      }
-
-      const normalizedAmount = Math.abs(amountValue) * (transactionDirection === "expense" ? -1 : 1);
-
-      const isoDate = formData.date ? new Date(formData.date).toISOString() : new Date().toISOString();
-
-      setFormSubmitting(true);
-      setFormError("");
-
-      try {
-        if (editingTransactionId == null) {
-          await createTransaction(token, {
-            date: isoDate,
-            description,
-            amount: normalizedAmount,
-            category: formData.category.trim() || undefined
-          });
-        } else {
-          await updateTransaction(token, editingTransactionId, {
-            date: isoDate,
-            description,
-            amount: normalizedAmount,
-            category: formData.category.trim() || undefined
-          });
-        }
-
-        setError("");
-        setLoading(true);
-        setRefreshKey((prev) => prev + 1);
-        handleModalClose();
-      } catch (err) {
-        const message = err instanceof Error && err.message ? err.message : "Unable to save transaction.";
-        setFormError(message);
-      } finally {
-        setFormSubmitting(false);
-      }
-
-      return;
-    }
-
-    if (!statementFile) {
-      setFormError("Please choose a CSV statement file to upload.");
-      return;
-    }
-
-    setFormSubmitting(true);
-    setFormError("");
-
-    try {
-      await uploadStatement(statementFile, token);
-
       setError("");
-      setLoading(true);
-      setRefreshKey((prev) => prev + 1);
-      handleModalClose();
-    } catch (err) {
-      const message = err instanceof Error && err.message ? err.message : "Unable to upload statement.";
-      setFormError(message);
-    } finally {
-      setFormSubmitting(false);
-    }
-  };
-
+      try {
+        const data = await getTransactions(
+          token(),
+          type,
+          category,
+          { ...range, search },
+          signal,
+        );
+        if (!signal?.aborted) setTransactions(data);
+      } catch (error) {
+        if (!signal?.aborted) setError((error as Error).message);
+      } finally {
+        if (!signal?.aborted) setLoading(false);
+      }
+    },
+    [type, category, range, search],
+  );
+  useEffect(() => {
+    const controller = new AbortController();
+    void load(controller.signal);
+    return () => controller.abort();
+  }, [load, refresh]);
   return (
-    <div className="dashboard-wrap transactions-page">
-      <div className="topbar">
-        <div className="brand">
-          <img src="/logo.png" alt="Finance Tracker logo" className="logo" />
-          <h2 style={{ margin: 0 }}>FINANCE-TRACKER</h2>
+    <div className="dashboard-wrap">
+      <Navigation />
+      <main className="page-content">
+        <div className="recent-title">
+          <h1>Transactions</h1>
+          <MonthSelector
+            month={month}
+            onChange={(value) => {
+              setMonth(value);
+              setRange(monthRange(value));
+            }}
+          />
         </div>
-        <nav className="nav">
-          <a href="/">Dashboard</a>
-          <a href="/transactions" className="active">Transactions</a>
-          <a>Expenses</a>
-          <a>Reports</a>
-          <a>Categories</a>
-          <a>Settings</a>
-          <a onClick={handleAuthClick} role="button" style={{ cursor: "pointer" }}>{isLoggedIn ? "Logout" : "Login"}</a>
-        </nav>
-      </div>
-
-      <div className="transactions-area">
-        <div className="transactions-card">
-          <div className="transactions-card-header">
-            <h2>Transactions</h2>
-            <p className="small">Review and filter your financial activity.</p>
-          </div>
-
-          <div className="transactions-card-actions">
-            <button
-              type="button"
-              className="primary-btn"
-              onClick={handleAddClick}
-            >
-              Add Transaction / Statement
-            </button>
-          </div>
-
-          {token && (
-            <TransactionFilters
-              token={token}
-              setTransactions={handleFiltersUpdate}
-              onLoadingChange={setLoading}
-              onError={handleFilterError}
-              refreshKey={refreshKey}
+        <div className="filter-row">
+          <button
+            className="primary-btn"
+            onClick={() => {
+              setEdit({
+                date: today(),
+                description: "",
+                amount: 0,
+                category: "Uncategorized",
+              });
+              setFormError("");
+              setSuggestion("");
+            }}
+          >
+            Add transaction
+          </button>
+          <button
+            className="secondary-btn"
+            onClick={() => setShowImport(!showImport)}
+          >
+            {showImport ? "Hide import" : "Import statement"}
+          </button>
+        </div>
+        {showImport && (
+          <section className="card">
+            <StatementUploader
+              token={token()}
+              onUploaded={() => setRefresh((r) => r + 1)}
             />
-          )}
-
-          {loading ? (
-            <p style={{ color: "#6b7280" }}>Loading transactions...</p>
-          ) : error ? (
-            <p style={{ color: "#ef4444" }}>{error}</p>
-          ) : (
-            <TransactionsList transactions={transactions} onEdit={handleEditClick} />
-          )}
-        </div>
-      </div>
-
-      {isModalOpen && (
-        <div className="transactions-modal-overlay" role="dialog" aria-modal="true">
-          <div className="transactions-modal">
-            <h3>
-              {modalMode === "transaction"
-                ? editingTransactionId == null
-                  ? "Add Transaction"
-                  : "Edit Transaction"
-                : "Upload Statement"}
-            </h3>
-
-            <div className="transactions-modal-toggle" role="tablist" aria-label="Add options">
-              <button
-                type="button"
-                className={`toggle-option ${modalMode === "transaction" ? "is-active" : ""}`}
-                onClick={() => handleModeChange("transaction")}
-                aria-pressed={modalMode === "transaction"}
-                disabled={formSubmitting}
-              >
-                Single Transaction
-              </button>
-              <button
-                type="button"
-                className={`toggle-option ${modalMode === "statement" ? "is-active" : ""}`}
-                onClick={() => handleModeChange("statement")}
-                aria-pressed={modalMode === "statement"}
-                disabled={formSubmitting}
-              >
-                Upload Statement
-              </button>
-            </div>
-
-            <form className="transactions-modal-form" onSubmit={handleFormSubmit}>
-              {modalMode === "transaction" ? (
-                <>
-                  <div className="transactions-modal-toggle" role="tablist" aria-label="Transaction type">
-                    <button
-                      type="button"
-                      className={`toggle-option ${transactionDirection === "expense" ? "is-active" : ""}`}
-                      onClick={() => setTransactionDirection("expense")}
-                      aria-pressed={transactionDirection === "expense"}
-                      disabled={formSubmitting}
-                    >
-                      Expense
-                    </button>
-                    <button
-                      type="button"
-                      className={`toggle-option ${transactionDirection === "income" ? "is-active" : ""}`}
-                      onClick={() => setTransactionDirection("income")}
-                      aria-pressed={transactionDirection === "income"}
-                      disabled={formSubmitting}
-                    >
-                      Income
-                    </button>
-                  </div>
-
-                  <label>
-                    <span>Date</span>
-                    <input
-                      type="date"
-                      value={formData.date}
-                      onChange={handleFormChange("date")}
-                      required
-                      disabled={formSubmitting}
-                    />
-                  </label>
-
-                  <label>
-                    <span>Description</span>
-                    <input
-                      type="text"
-                      value={formData.description}
-                      onChange={handleFormChange("description")}
-                      placeholder="e.g. Grocery run"
-                      required
-                      autoFocus
-                      disabled={formSubmitting}
-                    />
-                  </label>
-
-                  <label>
-                    <span>Category</span>
-                    <input
-                      type="text"
-                      value={formData.category}
-                      onChange={handleFormChange("category")}
-                      placeholder="Optional"
-                      disabled={formSubmitting}
-                    />
-                  </label>
-
-                  <label>
-                    <span>Amount</span>
-                    <input
-                      type="number"
-                      value={formData.amount}
-                      onChange={handleFormChange("amount")}
-                      placeholder="Enter a positive amount"
-                      min="0"
-                      step="0.01"
-                      required
-                      disabled={formSubmitting}
-                    />
-                  </label>
-                </>
-              ) : (
-                <>
-                  <p className="modal-helper-text">
-                    Upload a CSV or PDF statement exported from your bank. We will import each row as a transaction and auto-categorize known vendors.
-                  </p>
-
-                  <label>
-                    <span>Statement (CSV or PDF)</span>
-                    <input
-                      type="file"
-                      accept=".csv,text/csv,.pdf,application/pdf"
-                      onChange={handleFileChange}
-                      required
-                      disabled={formSubmitting}
-                      autoFocus
-                    />
-                  </label>
-
-                  {statementFile && (
-                    <p className="selected-file">Selected file: {statementFile.name}</p>
-                  )}
-                </>
-              )}
-
-              {formError && <p className="form-error">{formError}</p>}
-
-              <div className="transactions-modal-actions">
-                <button
-                  type="button"
-                  className="secondary-btn"
-                  onClick={handleModalClose}
-                  disabled={formSubmitting}
-                >
-                  Cancel
-                </button>
-                <button
-                  type="submit"
-                  className="primary-btn"
-                  disabled={formSubmitting}
-                >
-                  {modalMode === "transaction"
-                    ? formSubmitting
-                      ? "Saving..."
-                      : editingTransactionId == null
-                        ? "Save Transaction"
-                        : "Update Transaction"
-                    : formSubmitting ? "Uploading..." : "Upload Statement"}
-                </button>
-              </div>
-            </form>
+          </section>
+        )}
+        <section className="card">
+          <div className="filter-row">
+            <label>
+              Description search
+              <input
+                type="search"
+                value={search}
+                onChange={(e) => setSearch(e.target.value)}
+              />
+            </label>
+            <label>
+              From
+              <input
+                type="date"
+                value={range.from}
+                onChange={(e) => setRange({ ...range, from: e.target.value })}
+              />
+            </label>
+            <label>
+              To
+              <input
+                type="date"
+                value={range.to}
+                onChange={(e) => setRange({ ...range, to: e.target.value })}
+              />
+            </label>
+            <CategorySelect value={category} onChange={setCategory} allowAll />
+            <label>
+              Type
+              <select value={type} onChange={(e) => setType(e.target.value)}>
+                <option value="">All types</option>
+                <option value="income">Income</option>
+                <option value="expense">Expense</option>
+              </select>
+            </label>
           </div>
-        </div>
-      )}
+          {error && (
+            <p className="dashboard-error" role="alert">
+              {error} <button onClick={() => void load()}>Retry</button>
+            </p>
+          )}
+          {loading ? (
+            <p role="status">Loading transactions…</p>
+          ) : (
+            <div className="table-scroll">
+              <TransactionsList
+                transactions={transactions}
+                onEdit={(transaction) => {
+                  setEdit(transaction);
+                  setFormError("");
+                  setSuggestion("");
+                }}
+              />
+            </div>
+          )}
+        </section>
+        {edit && (
+          <Dialog
+            title={edit.id ? "Edit transaction" : "Add transaction"}
+            onClose={() => {
+              if (!busy) setEdit(null);
+            }}
+          >
+            <form
+              className="budget-form"
+              onSubmit={async (event) => {
+                event.preventDefault();
+                setBusy(true);
+                setFormError("");
+                const payload = {
+                  date: edit.date!.slice(0, 10),
+                  description: edit.description!,
+                  amount: Number(edit.amount),
+                  category: edit.category,
+                };
+                try {
+                  if (edit.id)
+                    await updateTransaction(token(), edit.id, payload);
+                  else await createTransaction(token(), payload);
+                  setEdit(null);
+                  setRefresh((r) => r + 1);
+                } catch (error) {
+                  setFormError((error as Error).message);
+                } finally {
+                  setBusy(false);
+                }
+              }}
+            >
+              <label>
+                Date
+                <input
+                  type="date"
+                  required
+                  value={edit.date?.slice(0, 10)}
+                  onChange={(e) => setEdit({ ...edit, date: e.target.value })}
+                />
+              </label>
+              <label>
+                Description
+                <input
+                  required
+                  maxLength={2000}
+                  value={edit.description}
+                  onChange={(e) =>
+                    setEdit({ ...edit, description: e.target.value })
+                  }
+                />
+              </label>
+              <label>
+                Signed amount (ZAR)
+                <input
+                  type="number"
+                  required
+                  step="0.01"
+                  value={edit.amount}
+                  onChange={(e) =>
+                    setEdit({ ...edit, amount: Number(e.target.value) })
+                  }
+                />
+              </label>
+              <p>
+                Negative amounts are expenses; positive amounts are inflows.
+              </p>
+              <CategorySelect
+                value={edit.category || "Uncategorized"}
+                onChange={(category) => setEdit({ ...edit, category })}
+              />
+              <button
+                className="secondary-btn"
+                type="button"
+                disabled={busy || !edit.description?.trim()}
+                onClick={async () => {
+                  setBusy(true);
+                  setFormError("");
+                  try {
+                    const result = await classifyTransaction(
+                      token(),
+                      edit.description!,
+                    );
+                    setSuggestion(result.category);
+                  } catch (error) {
+                    setFormError((error as Error).message);
+                  } finally {
+                    setBusy(false);
+                  }
+                }}
+              >
+                Suggest category
+              </button>
+              {suggestion && (
+                <p>
+                  Suggested: {suggestion}{" "}
+                  <button
+                    type="button"
+                    onClick={() => setEdit({ ...edit, category: suggestion })}
+                  >
+                    Use suggestion
+                  </button>
+                </p>
+              )}
+              {formError && (
+                <p role="alert" className="dashboard-error">
+                  {formError}
+                </p>
+              )}
+              <button className="primary-btn" disabled={busy || !edit.amount}>
+                {busy ? "Saving…" : "Save transaction"}
+              </button>
+            </form>
+          </Dialog>
+        )}
+      </main>
     </div>
   );
 }

@@ -10,7 +10,7 @@ export interface ClassificationResult {
     category: string;
 }
 
-export async function getTransactions(token: string, type?: string, category?: string): Promise<Transaction[]> {
+export async function getTransactions(token: string, type?: string, category?: string, filters: { from?: string; to?: string; search?: string } = {}, signal?: AbortSignal): Promise<Transaction[]> {
     if (!token) {
         return [];
     }
@@ -18,11 +18,13 @@ export async function getTransactions(token: string, type?: string, category?: s
     const params = new URLSearchParams();
     if (type) params.append("type", type);
     if (category) params.append("category", category);
+    Object.entries(filters).forEach(([key, value]) => { if (value) params.append(key, value); });
 
     const query = params.toString();
     const url = query ? `/api/transaction?${query}` : "/api/transaction";
 
     const res = await fetch(url, {
+        signal,
         headers: {
             Authorization: `Bearer ${token}`
         }

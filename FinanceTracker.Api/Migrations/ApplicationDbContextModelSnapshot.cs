@@ -43,6 +43,127 @@ namespace FinanceTracker.Api.Migrations
                     b.ToTable("Users");
                 });
 
+            modelBuilder.Entity("FinanceTracker.Api.Models.CategoryLimit", b =>
+                {
+                    b.Property<int>("Id")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("int");
+
+                    SqlServerPropertyBuilderExtensions.UseIdentityColumn(b.Property<int>("Id"));
+
+                    b.Property<string>("Category")
+                        .IsRequired()
+                        .HasMaxLength(100)
+                        .HasColumnType("nvarchar(100)")
+                        .UseCollation("SQL_Latin1_General_CP1_CI_AS");
+
+                    b.Property<decimal>("LimitAmount")
+                        .HasPrecision(18, 2)
+                        .HasColumnType("decimal(18,2)");
+
+                    b.Property<int>("MonthlyBudgetId")
+                        .HasColumnType("int");
+
+                    b.HasKey("Id");
+
+                    b.HasIndex("MonthlyBudgetId", "Category")
+                        .IsUnique();
+
+                    b.ToTable("CategoryLimits", t =>
+                        {
+                            t.HasCheckConstraint("CK_CategoryLimit_Amount", "[LimitAmount] >= 0");
+                        });
+                });
+
+            modelBuilder.Entity("FinanceTracker.Api.Models.ImportBatch", b =>
+                {
+                    b.Property<Guid>("Id")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("uniqueidentifier");
+
+                    b.Property<DateTime?>("ConfirmedAt")
+                        .HasColumnType("datetime2");
+
+                    b.Property<int>("ConfirmedCount")
+                        .HasColumnType("int");
+
+                    b.Property<DateTime>("CreatedAt")
+                        .HasColumnType("datetime2");
+
+                    b.Property<DateTime>("ExpiresAt")
+                        .HasColumnType("datetime2");
+
+                    b.Property<string>("NoticesJson")
+                        .IsRequired()
+                        .HasColumnType("nvarchar(max)");
+
+                    b.Property<DateTime?>("StatementEnd")
+                        .HasColumnType("datetime2");
+
+                    b.Property<DateTime?>("StatementStart")
+                        .HasColumnType("datetime2");
+
+                    b.Property<int>("UserId")
+                        .HasColumnType("int");
+
+                    b.Property<byte[]>("Version")
+                        .IsConcurrencyToken()
+                        .IsRequired()
+                        .ValueGeneratedOnAddOrUpdate()
+                        .HasColumnType("rowversion");
+
+                    b.HasKey("Id");
+
+                    b.HasIndex("UserId", "ExpiresAt");
+
+                    b.ToTable("ImportBatches");
+                });
+
+            modelBuilder.Entity("FinanceTracker.Api.Models.ImportRow", b =>
+                {
+                    b.Property<int>("Id")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("int");
+
+                    SqlServerPropertyBuilderExtensions.UseIdentityColumn(b.Property<int>("Id"));
+
+                    b.Property<decimal?>("Amount")
+                        .HasPrecision(18, 2)
+                        .HasColumnType("decimal(18,2)");
+
+                    b.Property<string>("Category")
+                        .IsRequired()
+                        .HasColumnType("nvarchar(max)");
+
+                    b.Property<DateTime?>("Date")
+                        .HasColumnType("date");
+
+                    b.Property<string>("Description")
+                        .IsRequired()
+                        .HasColumnType("nvarchar(max)");
+
+                    b.Property<string>("Error")
+                        .HasColumnType("nvarchar(max)");
+
+                    b.Property<Guid>("ImportBatchId")
+                        .HasColumnType("uniqueidentifier");
+
+                    b.Property<bool>("Included")
+                        .HasColumnType("bit");
+
+                    b.Property<bool>("PossibleDuplicate")
+                        .HasColumnType("bit");
+
+                    b.Property<int>("RowNumber")
+                        .HasColumnType("int");
+
+                    b.HasKey("Id");
+
+                    b.HasIndex("ImportBatchId");
+
+                    b.ToTable("ImportRows");
+                });
+
             modelBuilder.Entity("FinanceTracker.Api.Models.MonthlyBudget", b =>
                 {
                     b.Property<int>("Id")
@@ -52,22 +173,36 @@ namespace FinanceTracker.Api.Migrations
                     SqlServerPropertyBuilderExtensions.UseIdentityColumn(b.Property<int>("Id"));
 
                     b.Property<decimal>("LimitAmount")
+                        .HasPrecision(18, 2)
                         .HasColumnType("decimal(18,2)");
 
                     b.Property<int>("Month")
                         .HasColumnType("int");
 
+                    b.Property<bool>("NeedsReconfirmation")
+                        .HasColumnType("bit");
+
                     b.Property<int>("UserId")
                         .HasColumnType("int");
+
+                    b.Property<byte[]>("Version")
+                        .IsConcurrencyToken()
+                        .IsRequired()
+                        .ValueGeneratedOnAddOrUpdate()
+                        .HasColumnType("rowversion");
 
                     b.Property<int>("Year")
                         .HasColumnType("int");
 
                     b.HasKey("Id");
 
-                    b.HasIndex("UserId");
+                    b.HasIndex("UserId", "Year", "Month")
+                        .IsUnique();
 
-                    b.ToTable("MonthlyBudgets");
+                    b.ToTable("MonthlyBudgets", t =>
+                        {
+                            t.HasCheckConstraint("CK_Budget_Month", "[Month] BETWEEN 1 AND 12 AND [Year] BETWEEN 1900 AND 9998");
+                        });
                 });
 
             modelBuilder.Entity("FinanceTracker.Api.Models.RevokedToken", b =>
@@ -107,20 +242,54 @@ namespace FinanceTracker.Api.Migrations
                         .HasColumnType("nvarchar(max)");
 
                     b.Property<DateTime>("Date")
-                        .HasColumnType("datetime2");
+                        .HasColumnType("date");
 
                     b.Property<string>("Description")
                         .IsRequired()
                         .HasColumnType("nvarchar(max)");
+
+                    b.Property<int?>("ImportRowId")
+                        .HasColumnType("int");
 
                     b.Property<int>("UserId")
                         .HasColumnType("int");
 
                     b.HasKey("Id");
 
-                    b.HasIndex("UserId");
+                    b.HasIndex("ImportRowId")
+                        .IsUnique()
+                        .HasFilter("[ImportRowId] IS NOT NULL");
+
+                    b.HasIndex("UserId", "Date");
 
                     b.ToTable("Transactions");
+                });
+
+            modelBuilder.Entity("FinanceTracker.Api.Models.CategoryLimit", b =>
+                {
+                    b.HasOne("FinanceTracker.Api.Models.MonthlyBudget", null)
+                        .WithMany("CategoryLimits")
+                        .HasForeignKey("MonthlyBudgetId")
+                        .OnDelete(DeleteBehavior.Cascade)
+                        .IsRequired();
+                });
+
+            modelBuilder.Entity("FinanceTracker.Api.Models.ImportBatch", b =>
+                {
+                    b.HasOne("FinanceTracker.Api.Models.AppUser", null)
+                        .WithMany()
+                        .HasForeignKey("UserId")
+                        .OnDelete(DeleteBehavior.Restrict)
+                        .IsRequired();
+                });
+
+            modelBuilder.Entity("FinanceTracker.Api.Models.ImportRow", b =>
+                {
+                    b.HasOne("FinanceTracker.Api.Models.ImportBatch", null)
+                        .WithMany("Rows")
+                        .HasForeignKey("ImportBatchId")
+                        .OnDelete(DeleteBehavior.Cascade)
+                        .IsRequired();
                 });
 
             modelBuilder.Entity("FinanceTracker.Api.Models.MonthlyBudget", b =>
@@ -136,6 +305,11 @@ namespace FinanceTracker.Api.Migrations
 
             modelBuilder.Entity("FinanceTracker.Api.Models.Transaction", b =>
                 {
+                    b.HasOne("FinanceTracker.Api.Models.ImportRow", null)
+                        .WithMany()
+                        .HasForeignKey("ImportRowId")
+                        .OnDelete(DeleteBehavior.Restrict);
+
                     b.HasOne("FinanceTracker.Api.Models.AppUser", "User")
                         .WithMany()
                         .HasForeignKey("UserId")
@@ -143,6 +317,16 @@ namespace FinanceTracker.Api.Migrations
                         .IsRequired();
 
                     b.Navigation("User");
+                });
+
+            modelBuilder.Entity("FinanceTracker.Api.Models.ImportBatch", b =>
+                {
+                    b.Navigation("Rows");
+                });
+
+            modelBuilder.Entity("FinanceTracker.Api.Models.MonthlyBudget", b =>
+                {
+                    b.Navigation("CategoryLimits");
                 });
 #pragma warning restore 612, 618
         }

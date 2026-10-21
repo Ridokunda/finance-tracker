@@ -12,6 +12,9 @@ namespace FinanceTracker.Api.Data
         public DbSet<RevokedToken> RevokedTokens { get; set; }
         public DbSet<Transaction> Transactions { get; set; }
         public DbSet<MonthlyBudget> MonthlyBudgets { get; set; }
+        public DbSet<CategoryLimit> CategoryLimits { get; set; }
+        public DbSet<ImportBatch> ImportBatches { get; set; }
+        public DbSet<ImportRow> ImportRows { get; set; }
 
 
         protected override void OnModelCreating(ModelBuilder modelBuilder)
@@ -22,6 +25,23 @@ namespace FinanceTracker.Api.Data
             modelBuilder.Entity<Transaction>()
                 .Property(t => t.Amount)
                 .HasPrecision(18, 2); // SQL Server decimal(18,2)
+            modelBuilder.Entity<Transaction>().Property(t => t.Date).HasColumnType("date");
+            modelBuilder.Entity<Transaction>().HasIndex(t => new { t.UserId, t.Date });
+            modelBuilder.Entity<Transaction>().HasIndex(t => t.ImportRowId).IsUnique().HasFilter("[ImportRowId] IS NOT NULL");
+            modelBuilder.Entity<Transaction>().HasOne<ImportRow>().WithMany().HasForeignKey(t => t.ImportRowId).OnDelete(DeleteBehavior.Restrict);
+            modelBuilder.Entity<MonthlyBudget>().Property(b => b.LimitAmount).HasPrecision(18, 2);
+            modelBuilder.Entity<MonthlyBudget>().Property(b => b.Version).IsRowVersion();
+            modelBuilder.Entity<MonthlyBudget>().HasIndex(b => new { b.UserId, b.Year, b.Month }).IsUnique();
+            modelBuilder.Entity<MonthlyBudget>().ToTable(t => t.HasCheckConstraint("CK_Budget_Month", "[Month] BETWEEN 1 AND 12 AND [Year] BETWEEN 1900 AND 9998"));
+            modelBuilder.Entity<CategoryLimit>().Property(c => c.Category).HasMaxLength(100).UseCollation("SQL_Latin1_General_CP1_CI_AS");
+            modelBuilder.Entity<CategoryLimit>().Property(c => c.LimitAmount).HasPrecision(18, 2);
+            modelBuilder.Entity<CategoryLimit>().HasIndex(c => new { c.MonthlyBudgetId, c.Category }).IsUnique();
+            modelBuilder.Entity<CategoryLimit>().ToTable(t => t.HasCheckConstraint("CK_CategoryLimit_Amount", "[LimitAmount] >= 0"));
+            modelBuilder.Entity<ImportBatch>().HasOne<AppUser>().WithMany().HasForeignKey(b => b.UserId).OnDelete(DeleteBehavior.Restrict);
+            modelBuilder.Entity<ImportBatch>().Property(b => b.Version).IsRowVersion();
+            modelBuilder.Entity<ImportBatch>().HasIndex(b => new { b.UserId, b.ExpiresAt });
+            modelBuilder.Entity<ImportRow>().Property(r => r.Amount).HasPrecision(18, 2);
+            modelBuilder.Entity<ImportRow>().Property(r => r.Date).HasColumnType("date");
         }
     }
 }

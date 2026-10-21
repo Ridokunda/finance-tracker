@@ -9,8 +9,9 @@
         public string Description { get; set; } = string.Empty;
         public string Category { get; set; } = "Uncategorized";
         public decimal Amount { get; set; }
+        public int? ImportRowId { get; set; }
         
 
-        public AppUser User { get; set; }
+        public AppUser User { get; set; } = null!;
     }
 }

@@ -4,11 +4,13 @@ import Signup from "./pages/Signup";
 import Dashboard from "./pages/Dashboard";
 import TransactionsPage from "./pages/TransactionsPage";
 import ProtectedRoute from "./components/ProtectedRoute";
+import Budgets from "./pages/Budgets";
 
 function App() {
   return (
     <Router>
       <Routes>
+        <Route path="/budgets" element={<ProtectedRoute><Budgets /></ProtectedRoute>} />
         {/* Public routes */}
         <Route path="/login" element={<Login />} />
         <Route path="/signup" element={<Signup />} />

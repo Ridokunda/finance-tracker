@@ -1,47 +1,49 @@
-export async function uploadStatement(file: File, token: string) {
+import { api } from "./finance";
+export type PreviewRow = {
+  id: number;
+  rowNumber: number;
+  date: string | null;
+  description: string;
+  amount: number | null;
+  category: string;
+  error: string | null;
+  possibleDuplicate: boolean;
+  included: boolean;
+  keepDuplicate?: boolean;
+};
+export type Preview = {
+  id?: string;
+  expiresAt: string;
+  confirmedAt: string | null;
+  confirmedCount: number;
+  notices: string[];
+  columns: string[];
+  rows: PreviewRow[];
+  statementStart?: string;
+  statementEnd?: string;
+};
+export type Mapping = {
+  dateColumn: string;
+  descriptionColumn: string;
+  amountColumn: string;
+  dateFormat: string;
+  delimiter: string;
+};
+export async function previewStatement(file: File, mapping: Mapping) {
   const form = new FormData();
   form.append("file", file);
-
-  const res = await fetch("/api/statement/upload", {
+  Object.entries(mapping).forEach(([key, value]) => form.append(key, value));
+  return api<Preview>("statement/preview", { method: "POST", body: form });
+}
+export const confirmStatement = (preview: Preview) =>
+  api<{ id: string; count: number }>(`statement/${preview.id}/confirm`, {
     method: "POST",
-    headers: {
-      Authorization: `Bearer ${token}`
-    },
-    body: form
+    body: JSON.stringify({
+      rows: preview.rows.map(({ id, category, included, keepDuplicate }) => ({
+        id,
+        category,
+        included,
+        keepDuplicate: !!keepDuplicate,
+      })),
+    }),
   });
-
-  if (!res.ok) {
-    const errorText = await res.text().catch(() => '');
-    throw new Error(errorText || `HTTP ${res.status}`);
-  }
-
-  const contentType = res.headers.get('content-type') || '';
-  if (contentType.includes('application/json')) {
-    return res.json();
-  }
-  
-  const text = await res.text();
-  return { message: text, count: 0 };
-}
-
-export async function getTransactions(token: string) {
-  const res = await fetch("/api/statement", {
-    method: "GET",
-    headers: {
-      Authorization: `Bearer ${token}`
-    }
-  });
-
-  if (!res.ok) {
-    const errorText = await res.text().catch(() => '');
-    throw new Error(errorText || `HTTP ${res.status}`);
-  }
-
-  const contentType = res.headers.get('content-type') || '';
-  if (contentType.includes('application/json')) {
-    return res.json();
-  }
-  
-  const text = await res.text();
-  return { data: [], message: text };
-}

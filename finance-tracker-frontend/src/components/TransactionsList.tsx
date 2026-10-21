@@ -1,3 +1,4 @@
+import { currency } from '../services/finance';
 interface Props {
   transactions: {
     id: number;
@@ -42,7 +43,7 @@ export default function TransactionsList({ transactions, onEdit }: Props) {
         {transactions.map((t) => (
           <tr key={t.id}>
             <td style={{ padding: "8px", border: "1px solid #ddd" }}>
-              {new Date(t.date).toLocaleDateString()}
+              {t.date.slice(0, 10)}
             </td>
             <td style={{ padding: "8px", border: "1px solid #ddd" }}>
               {t.description}
@@ -57,7 +58,7 @@ export default function TransactionsList({ transactions, onEdit }: Props) {
                 color: t.amount < 0 ? "red" : "green"
               }}
             >
-              {t.amount.toFixed(2)}
+              {currency(t.amount)}
             </td>
             <td style={{ padding: "8px", border: "1px solid #ddd" }}>
               <button

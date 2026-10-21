@@ -1,5 +1,5 @@
-import { useCallback, useEffect, useMemo, useState } from "react";
-import type { FormEvent, MouseEvent } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
+import type { FormEvent } from "react";
 import "./Dashboard.css";
 import StatementUploader from "../components/StatementUploader";
 import {
@@ -8,8 +8,12 @@ import {
   type ClassificationResult,
   type Transaction
 } from "../services/transaction";
-import { getBudget, setBudget as updateBudget, type BudgetSummary } from "../services/budget";
-import { logout } from "../services/auth";
+import { setBudget as updateBudget, type BudgetSummary } from "../services/budget";
+import { analytics, initialMonth, monthRange, currency } from "../services/finance";
+import type { MonthlySummary } from "../services/finance";
+import MonthSelector from "../components/MonthSelector";
+import Navigation from "../components/Navigation";
+import Dialog from "../components/Dialog";
 
 const EMPTY_BUDGET: BudgetSummary = {
   budget: 0,
@@ -19,12 +23,6 @@ const EMPTY_BUDGET: BudgetSummary = {
 };
 
 const CATEGORY_COLORS = ["#34d399", "#60a5fa", "#7c3aed", "#f97316", "#eab308", "#94a3b8"];
-const CURRENCY_FORMATTER = new Intl.NumberFormat("en-US", {
-  style: "currency",
-  currency: "USD"
-});
-const MONTH_FORMATTER = new Intl.DateTimeFormat("en-US", { month: "short" });
-
 function readToken(): string {
   try {
     return localStorage.getItem("token") || "";
@@ -33,47 +31,13 @@ function readToken(): string {
   }
 }
 
-function formatCurrency(amount: number): string {
-  return CURRENCY_FORMATTER.format(amount);
-}
-
-function transactionDate(transaction: Transaction): Date | null {
-  const date = new Date(transaction.date);
-  return Number.isNaN(date.getTime()) ? null : date;
-}
-
-function isCurrentMonth(transaction: Transaction, reference = new Date()): boolean {
-  const date = transactionDate(transaction);
-  return date !== null
-    && date.getUTCFullYear() === reference.getUTCFullYear()
-    && date.getUTCMonth() === reference.getUTCMonth();
-}
-
-function monthKey(year: number, month: number): string {
-  return `${year}-${String(month + 1).padStart(2, "0")}`;
-}
-
-function formatTransactionDate(transaction: Transaction): string {
-  const date = transactionDate(transaction);
-  return date === null ? "Unknown date" : date.toLocaleDateString();
-}
-
-type CategoryBreakdown = {
-  name: string;
-  total: number;
-  percentage: number;
-  color: string;
-};
-
-type TrendBucket = {
-  key: string;
-  label: string;
-  expenses: number;
-  income: number;
-};
+const formatCurrency = currency;
+function formatTransactionDate(transaction: Transaction): string { return transaction.date.slice(0, 10); }
 
 export default function Dashboard() {
-  const [isLoggedIn, setIsLoggedIn] = useState<boolean>(() => Boolean(readToken()));
+  const [month, setMonth] = useState(initialMonth);
+  const loadRevision = useRef(0);
+  const [monthly, setMonthly] = useState<MonthlySummary | null>(null);
   const [showUploader, setShowUploader] = useState(false);
   const [transactions, setTransactions] = useState<Transaction[]>([]);
   const [budgetSummary, setBudgetSummary] = useState<BudgetSummary>(EMPTY_BUDGET);
@@ -89,21 +53,21 @@ export default function Dashboard() {
   const [classifying, setClassifying] = useState(false);
 
   const loadDashboard = useCallback(async () => {
+    const revision = ++loadRevision.current;
     const token = readToken();
     if (!token) {
-      setIsLoggedIn(false);
       setLoading(false);
       window.location.href = "/login";
       return;
     }
 
-    setIsLoggedIn(true);
     setLoading(true);
 
     const [transactionsResult, budgetResult] = await Promise.allSettled([
-      getTransactions(token),
-      getBudget(token)
+      getTransactions(token, undefined, undefined, monthRange(month)),
+      analytics(month)
     ]);
+    if (revision !== loadRevision.current) return;
     const errors: string[] = [];
 
     if (transactionsResult.status === "fulfilled") {
@@ -114,89 +78,29 @@ export default function Dashboard() {
     }
 
     if (budgetResult.status === "fulfilled") {
+      setMonthly(budgetResult.value);
       setBudgetSummary(budgetResult.value);
       setBudgetInput(budgetResult.value.budget.toFixed(2));
     } else {
+      setMonthly(null);
       setBudgetSummary(EMPTY_BUDGET);
       errors.push("Budget data could not be loaded.");
     }
 
     setDataError(errors.join(" "));
     setLoading(false);
-  }, []);
+  }, [month]);
 
   useEffect(() => {
     void loadDashboard();
   }, [loadDashboard]);
 
-  const currentMonthTransactions = useMemo(
-    () => transactions.filter((transaction) => isCurrentMonth(transaction)),
-    [transactions]
-  );
-
-  const categoryBreakdown = useMemo<CategoryBreakdown[]>(() => {
-    const totals = new Map<string, number>();
-
-    currentMonthTransactions.forEach((transaction) => {
-      if (transaction.amount >= 0) {
-        return;
-      }
-
-      const name = transaction.category?.trim() || "Uncategorized";
-      totals.set(name, (totals.get(name) || 0) + Math.abs(transaction.amount));
-    });
-
-    const totalExpenses = Array.from(totals.values()).reduce((sum, value) => sum + value, 0);
-    return Array.from(totals.entries())
-      .sort(([, first], [, second]) => second - first)
-      .map(([name, total], index) => ({
-        name,
-        total,
-        percentage: totalExpenses === 0 ? 0 : (total / totalExpenses) * 100,
-        color: CATEGORY_COLORS[index % CATEGORY_COLORS.length]
-      }));
-  }, [currentMonthTransactions]);
-
-  const currentMonthExpenseTotal = useMemo(
-    () => currentMonthTransactions
-      .filter((transaction) => transaction.amount < 0)
-      .reduce((sum, transaction) => sum + Math.abs(transaction.amount), 0),
-    [currentMonthTransactions]
-  );
-
-  const trendData = useMemo<TrendBucket[]>(() => {
-    const now = new Date();
-    const months = Array.from({ length: 6 }, (_, index) => {
-      const date = new Date(Date.UTC(now.getUTCFullYear(), now.getUTCMonth() - 5 + index, 1));
-      return {
-        key: monthKey(date.getUTCFullYear(), date.getUTCMonth()),
-        label: MONTH_FORMATTER.format(date),
-        expenses: 0,
-        income: 0
-      };
-    });
-    const byMonth = new Map(months.map((month) => [month.key, month]));
-
-    transactions.forEach((transaction) => {
-      const date = transactionDate(transaction);
-      if (date === null) {
-        return;
-      }
-
-      const month = byMonth.get(monthKey(date.getUTCFullYear(), date.getUTCMonth()));
-      if (!month) {
-        return;
-      }
-
-      if (transaction.amount < 0) {
-        month.expenses += Math.abs(transaction.amount);
-      } else if (transaction.amount > 0) {
-        month.income += transaction.amount;
-      }
-    });
-
-    return months;
-  }, [transactions]);
+  const currentMonthExpenseTotal = monthly?.spent ?? 0;
+  const categoryBreakdown = (monthly?.categories ?? []).filter(c => c.spent > 0).map((c, index) => ({
+    name: c.category, total: c.spent, percentage: currentMonthExpenseTotal ? c.spent / currentMonthExpenseTotal * 100 : 0,
+    color: CATEGORY_COLORS[index % CATEGORY_COLORS.length]
+  }));
+  const trendData = (monthly?.trends ?? []).map(t => ({ key: t.month, label: t.month, expenses: t.expenses, income: t.income }));
 
   const recentTransactions = transactions.slice(0, 5);
   const trendMax = Math.max(
@@ -212,27 +116,6 @@ export default function Dashboard() {
       return `${x},${y}`;
     })
     .join(" ");
-
-  const handleAuthClick = async (event: MouseEvent<HTMLAnchorElement>) => {
-    event.preventDefault();
-    const token = readToken();
-
-    if (isLoggedIn && token) {
-      try {
-        await logout(token);
-      } catch (error) {
-        console.warn("Logout API call failed, clearing local session anyway.", error);
-      }
-    }
-
-    try {
-      localStorage.removeItem("token");
-    } catch {
-      // Ignore storage failures; the login page will still be displayed.
-    }
-    setIsLoggedIn(false);
-    window.location.href = "/login";
-  };
 
   const handleClassify = async (event: FormEvent<HTMLFormElement>) => {
     event.preventDefault();
@@ -259,30 +142,16 @@ export default function Dashboard() {
 
   return (
     <div className="dashboard-wrap">
-      <div className="topbar">
-        <div className="brand">
-          <img src="/logo.png" alt="Finance Tracker logo" className="logo" />
-          <h2>FINANCE-TRACKER</h2>
-        </div>
-        <nav className="nav">
-          <a href="/" className="active">Dashboard</a>
-          <a href="/transactions">Transactions</a>
-          <a href="/">Expenses</a>
-          <a href="/">Reports</a>
-          <a href="/">Categories</a>
-          <a href="/">Settings</a>
-          <a href="/login" onClick={handleAuthClick} role="button">{isLoggedIn ? "Logout" : "Login"}</a>
-        </nav>
-      </div>
-
+      <Navigation />
+      <div className="page-heading"><h1>Your monthly overview</h1><MonthSelector month={month} onChange={setMonth} /></div>
       <main className="grid">
         <div className="column">
           <div className="row-cards">
             <section className="card h-lg">
-              <div className="card-title">Monthly Budget</div>
-              <div className="card-value">{loading ? "—" : formatCurrency(budgetSummary.budget)}</div>
+              <div className="card-title">Monthly Budget</div>{monthly?.needsReconfirmation && <p className="notice">Reconfirm this limit: earlier imports may have changed it. <a href="/budgets">Review budget</a></p>}
+              <div className="card-value">{loading ? "—" : (monthly?.hasBudget ? formatCurrency(budgetSummary.budget) : "No limit set")}</div>
               <div className="card-sub" style={{ color: budgetSummary.remaining < 0 ? "#ef4444" : "#10b981" }}>
-                {loading ? "Loading budget..." : `Remaining: ${formatCurrency(budgetSummary.remaining)}`}
+                {loading ? "Loading budget..." : monthly?.hasBudget ? `Remaining: ${formatCurrency(budgetSummary.remaining)}` : "Set a limit to track remaining funds"}
               </div>
               <button
                 className="card-action"
@@ -339,7 +208,7 @@ export default function Dashboard() {
                   </svg>
                   <div className="donut-center">
                     <strong>{formatCurrency(currentMonthExpenseTotal)}</strong>
-                    <span>This month</span>
+                    <span>{month}</span>
                   </div>
                 </div>
                 <div className="legend">
@@ -347,7 +216,7 @@ export default function Dashboard() {
                     <div className="legend-item" key={category.name}>
                       <div className="legend-dot" style={{ background: category.color }} />
                       <div>
-                        <div className="legend-name">{category.name}</div>
+                        <a className="legend-name" href={`/transactions?month=${month}&category=${encodeURIComponent(category.name)}`}>{category.name}</a>
                         <div className="small">{category.percentage.toFixed(1)}% · {formatCurrency(category.total)}</div>
                       </div>
                     </div>
@@ -357,6 +226,7 @@ export default function Dashboard() {
             )}
           </section>
 
+          <section className="card"><div className="card-title">Net cash flow</div><div className="card-value">{loading ? "—" : formatCurrency(monthly?.netCashFlow ?? 0)}</div><p className="small">Income minus expenses for {month}</p></section>
           <section className="card">
             <div className="card-title">Expense Classification Tool</div>
             <form className="classification" onSubmit={handleClassify}>
@@ -464,14 +334,14 @@ export default function Dashboard() {
             </div>
           </section>
 
-          {dataError && <div className="dashboard-error" role="alert">{dataError}</div>}
+          {dataError && <div className="dashboard-error" role="alert">{dataError} <button onClick={loadDashboard}>Retry</button></div>}
         </div>
       </main>
 
       {budgetModalOpen && (
-        <div className="dashboard-modal-overlay" role="dialog" aria-modal="true" aria-labelledby="budget-dialog-title">
+        <Dialog title="Update Monthly Budget" onClose={() => { if (!budgetSaving) setBudgetModalOpen(false); }}>
           <div className="dashboard-modal">
-            <h3 id="budget-dialog-title">Update Monthly Budget</h3>
+
             <form
               onSubmit={async (event) => {
                 event.preventDefault();
@@ -489,8 +359,9 @@ export default function Dashboard() {
                 setBudgetSaving(true);
                 setBudgetError("");
                 try {
-                  setBudgetSummary(await updateBudget(token, nextBudget));
+                  setBudgetSummary(await updateBudget(token, nextBudget, month));
                   setBudgetModalOpen(false);
+                  await loadDashboard();
                 } catch (error) {
                   setBudgetError(error instanceof Error ? error.message : "Unable to update budget.");
                 } finally {
@@ -523,7 +394,7 @@ export default function Dashboard() {
               </div>
             </form>
           </div>
-        </div>
+        </Dialog>
       )}
     </div>
   );
