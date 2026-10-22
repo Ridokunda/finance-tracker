@@ -14,6 +14,7 @@ import type { MonthlySummary } from "../services/finance";
 import MonthSelector from "../components/MonthSelector";
 import Navigation from "../components/Navigation";
 import Dialog from "../components/Dialog";
+import NetCashFlowCard from "../components/NetCashFlowCard";
 
 const EMPTY_BUDGET: BudgetSummary = {
   budget: 0,
@@ -39,6 +40,7 @@ export default function Dashboard() {
   const loadRevision = useRef(0);
   const [monthly, setMonthly] = useState<MonthlySummary | null>(null);
   const [showUploader, setShowUploader] = useState(false);
+  const [cashFlowRevision, setCashFlowRevision] = useState(0);
   const [transactions, setTransactions] = useState<Transaction[]>([]);
   const [budgetSummary, setBudgetSummary] = useState<BudgetSummary>(EMPTY_BUDGET);
   const [loading, setLoading] = useState(true);
@@ -226,7 +228,7 @@ export default function Dashboard() {
             )}
           </section>
 
-          <section className="card"><div className="card-title">Net cash flow</div><div className="card-value">{loading ? "—" : formatCurrency(monthly?.netCashFlow ?? 0)}</div><p className="small">Income minus expenses for {month}</p></section>
+          <NetCashFlowCard refreshKey={cashFlowRevision} />
           <section className="card">
             <div className="card-title">Expense Classification Tool</div>
             <form className="classification" onSubmit={handleClassify}>
@@ -267,7 +269,10 @@ export default function Dashboard() {
             </div>
             {showUploader && (
               <div className="uploader-wrap">
-                <StatementUploader token={readToken()} onUploaded={loadDashboard} />
+                <StatementUploader token={readToken()} onUploaded={() => {
+                  setCashFlowRevision(revision => revision + 1);
+                  return loadDashboard();
+                }} />
               </div>
             )}
             {loading ? (

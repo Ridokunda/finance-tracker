@@ -33,6 +33,46 @@ public class TransactionWorkflowTests
     private static JsonElement Json(IActionResult result) => JsonSerializer.SerializeToElement(Assert.IsType<OkObjectResult>(result).Value);
 
     [Fact]
+    public async Task CashFlowUsesInclusiveCalendarDatesAndExcludesDeletedAndOtherUsers()
+    {
+        await using var db = Database();
+        var before = Row(amount: 900); before.Date = new(2026, 9, 30);
+        var first = Row(amount: 1000); first.Date = new(2026, 10, 1);
+        var last = Row(amount: -125.50m); last.Date = new(2026, 10, 31);
+        var after = Row(amount: -500); after.Date = new(2026, 11, 1);
+        var deleted = Row(amount: -200); deleted.Date = first.Date; deleted.DeletedAt = DateTime.UtcNow;
+        var other = Row(user: 2, amount: 5000); other.Date = last.Date;
+        db.Transactions.AddRange(before, first, last, after, deleted, other);
+        await db.SaveChangesAsync();
+        var controller = AsUser(new TransactionController(db, new Classifier(null)));
+
+        Assert.Equal(874.50m, Json(controller.GetBalance(new(2026, 10, 1), new(2026, 10, 31)))
+            .GetProperty("netCashFlow").GetDecimal());
+        Assert.Equal(-125.50m, Json(controller.GetBalance(new(2026, 10, 31), new(2026, 10, 31)))
+            .GetProperty("netCashFlow").GetDecimal());
+        Assert.Equal(1000m, Json(controller.GetBalance(new(2026, 10, 1, 23, 0, 0), new(2026, 10, 1)))
+            .GetProperty("netCashFlow").GetDecimal());
+    }
+
+    [Fact]
+    public async Task CashFlowSupportsOptionalBoundsEmptyPeriodsAndRejectsReversedDates()
+    {
+        await using var db = Database();
+        var earlier = Row(amount: 1000); earlier.Date = new(2026, 9, 30);
+        var later = Row(amount: -150); later.Date = new(2026, 10, 1);
+        db.Transactions.AddRange(earlier, later); await db.SaveChangesAsync();
+        var controller = AsUser(new TransactionController(db, new Classifier(null)));
+
+        Assert.Equal(850m, Json(controller.GetBalance()).GetProperty("netCashFlow").GetDecimal());
+        Assert.Equal(-150m, Json(controller.GetBalance(from: new(2026, 10, 1))).GetProperty("netCashFlow").GetDecimal());
+        Assert.Equal(1000m, Json(controller.GetBalance(to: new(2026, 9, 30))).GetProperty("netCashFlow").GetDecimal());
+        Assert.Equal(0m, Json(controller.GetBalance(new(2026, 11, 1), new(2026, 11, 30))).GetProperty("netCashFlow").GetDecimal());
+        Assert.Equal(0m, Json(AsUser(new TransactionController(db, new Classifier(null)), 3).GetBalance())
+            .GetProperty("netCashFlow").GetDecimal());
+        Assert.IsType<BadRequestObjectResult>(controller.GetBalance(new(2026, 10, 2), new(2026, 10, 1)));
+    }
+
+    [Fact]
     public async Task DeleteAndRestorePreserveRecordsAndRecalculateEverySummary()
     {
         await using var db = Database();

@@ -131,7 +131,14 @@ public class TransactionController(ApplicationDbContext db, IClassifierClient cl
             .Concat(db.CategorizationRules.Where(r => r.UserId == UserId).Select(r => r.Category)).Distinct().ToList());
 
     [HttpGet("net-cash-flow")]
-    public IActionResult GetBalance() => Ok(new { netCashFlow = db.Transactions.Where(t => t.UserId == UserId).Sum(t => t.Amount) });
+    public IActionResult GetBalance([FromQuery] DateTime? from = null, [FromQuery] DateTime? to = null)
+    {
+        if (from?.Date > to?.Date) return BadRequest("Start date must be on or before end date.");
+        var query = db.Transactions.AsNoTracking().Where(t => t.UserId == UserId);
+        if (from != null) query = query.Where(t => t.Date >= from.Value.Date);
+        if (to != null) query = query.Where(t => t.Date <= to.Value.Date);
+        return Ok(new { netCashFlow = query.Sum(t => (decimal?)t.Amount) ?? 0m });
+    }
 
     [HttpGet("categories")]
     public IActionResult Categories()

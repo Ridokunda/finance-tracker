@@ -82,3 +82,6 @@ export type MonthlySummary = {
 };
 export const analytics = (month: string) =>
   api<MonthlySummary>(`budget/analytics?${monthQuery(month)}`);
+export type DateRange = { from: string; to: string };
+export const netCashFlow = (range: DateRange, signal?: AbortSignal) =>
+  api<{ netCashFlow: number }>(`transaction/net-cash-flow?${new URLSearchParams(range)}`, { signal });

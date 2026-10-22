@@ -64,6 +64,8 @@ Open [the local app](http://127.0.0.1:5174), sign in with the demo credentials, 
 
 A fresh user with a R5,000 limit and an imported R1,200 expense sees **R5,000 limit, R1,200 spent, R3,800 remaining**.
 
+The net cash flow tile has its own period selector: **This month**, **Last month**, **Last five days** (today and the previous four days), or **Custom period** with start/end dates and **Apply period**. Both boundary dates are included. Presets use the current South African calendar date, independently of the overview month. An empty period shows R0; a load failure shows a retry option.
+
 ## Transaction recovery, bulk editing and category rules
 
 - Manual entry and editing use **Income (money in)** or **Expense (money out)** with a positive ZAR amount. The API applies the sign; statement imports retain their original signed amounts. Existing signed-amount API clients remain supported when `type` is omitted.
@@ -127,7 +129,7 @@ All routes below require a bearer token. Existing current-month callers may omit
 | PUT / DELETE | /api/category-rules/{id} | Edit/enable/disable/delete an owned rule |
 | GET | /api/transaction/categories | User's normalized category choices |
 | POST | /api/transaction/classify | Editable category suggestion |
-| GET | /api/transaction/net-cash-flow | All-time income minus expenses |
+| GET | /api/transaction/net-cash-flow | Income minus expenses; optional inclusive `from`/`to` dates, all-time if omitted |
 
 Register/login remain `/api/auth/register` and `/api/auth/login`, accepting `username` and the existing `passwordHash` field name (the client supplies the password; the server hashes it with BCrypt). Logout revokes the bearer token.
 
@@ -152,6 +154,8 @@ npx.cmd playwright test
 ```
 
 Playwright starts Vite on port 5174, drives real login/API/SQL interactions, and covers preview without writes, duplicate defaults, outage handling, confirmation, category budgets, drill-down, user isolation and keyboard dialog dismissal. The screenshot test uses the synthetic demo account without confirming its preview. Screenshots are written to `docs/screenshots`.
+
+`npx.cmd playwright test e2e/net-cash-flow.spec.ts` runs the cash flow browser checks with mocked API responses, without SQL Server. It covers presets, South African dates with a browser in another timezone, year/leap-year boundaries, inclusive custom dates, invalid ranges, empty periods, retry and a 320px viewport.
 
 `transaction-tools.spec.ts` also covers positive income/expense entry, automatic rule matching, bulk category changes, delete/undo, recovery after reload, recalculated analytics and a mobile viewport. Backend workflow tests check rule precedence, outage handling, invalid amounts, user isolation and all-or-nothing selections; SQL tests verify the new migration and retained import provenance.
 

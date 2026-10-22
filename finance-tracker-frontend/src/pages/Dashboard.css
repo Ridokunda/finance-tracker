@@ -133,6 +133,56 @@
   margin-top: 6px;
 }
 
+.cash-flow-heading,
+.cash-flow-dates {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: end;
+  gap: 12px;
+  margin-bottom: 16px;
+}
+
+.cash-flow-heading {
+  align-items: center;
+  justify-content: space-between;
+}
+
+.cash-flow-heading .card-title {
+  margin: 0;
+}
+
+.cash-flow-card label {
+  display: flex;
+  min-width: 0;
+  flex-direction: column;
+  gap: 6px;
+  color: var(--muted);
+  font-size: 12px;
+}
+
+.cash-flow-dates label {
+  flex: 1 1 150px;
+}
+
+.cash-flow-card input,
+.cash-flow-card select {
+  min-width: 0;
+  max-width: 100%;
+  padding: 10px;
+  border: 1px solid #cbd5e1;
+  border-radius: 8px;
+  background: white;
+  color: var(--ink);
+  font: inherit;
+}
+
+.cash-flow-error {
+  flex-basis: 100%;
+  margin: 0;
+  color: #b91c1c;
+  font-size: 13px;
+}
+
 .card-action,
 .auth-button,
 .classification button {
