@@ -163,4 +163,34 @@ public class SqlWorkflowTests(SqlDatabase database) : IClassFixture<SqlDatabase>
         Assert.All(results, result => Assert.IsType<OkObjectResult>(result));
         Assert.Equal(1, await setup.Transactions.CountAsync(t => t.UserId == user));
     }
+
+    [SqlFact]
+    public async Task RecoveryBulkEditingAndRulesPersistWithImportProvenance()
+    {
+        await using var db = database.Open(); var user = await User(db); var other = await User(db);
+        var ruleController = AsUser(new CategoryRulesController(db), user);
+        Assert.IsType<OkObjectResult>(await ruleController.Create(new("Checkers", "Groceries")));
+        var batch = await Preview(db, user);
+        Assert.Equal("Groceries", batch.Rows[0].Category); Assert.DoesNotContain("unavailable", batch.NoticesJson);
+        Assert.IsType<OkObjectResult>(await Statements(db, user).Confirm(batch.Id, Decisions(batch)));
+        var imported = await db.Transactions.SingleAsync(t => t.UserId == user);
+        var controller = AsUser(new TransactionController(db, new Offline()), user);
+        Assert.IsType<OkObjectResult>(controller.Create(new() { Description = "Bus", Date = new(2026, 9, 1), Amount = 50, Type = "expense", Category = "Transport" }));
+        var ids = await db.Transactions.Where(t => t.UserId == user).Select(t => t.Id).ToListAsync();
+        Assert.IsType<OkObjectResult>(await controller.BulkCategory(new(ids, "Shopping")));
+        Assert.IsType<NotFoundObjectResult>(await AsUser(new TransactionController(db, new Offline()), other).Delete(new(ids)));
+        Assert.IsType<OkObjectResult>(await controller.Delete(new(ids)));
+        db.ChangeTracker.Clear();
+        Assert.Empty(await db.Transactions.Where(t => t.UserId == user).ToListAsync());
+        Assert.Equal(2, await db.Transactions.IgnoreQueryFilters().CountAsync(t => t.UserId == user && t.DeletedAt != null));
+        Assert.Equal(0, (await new MonthlyAnalytics(db).Build(user, new(2026, 9, 1))).Spent);
+        // Retrying confirmation after deletion must not resurrect transactions or break provenance.
+        Assert.IsType<OkObjectResult>(await Statements(db, user).Confirm(batch.Id, Decisions(batch)));
+        Assert.Empty(await db.Transactions.Where(t => t.UserId == user).ToListAsync());
+        Assert.IsType<OkObjectResult>(await controller.Restore(new(ids)));
+        db.ChangeTracker.Clear();
+        Assert.All(await db.Transactions.Where(t => t.UserId == user).ToListAsync(), row => Assert.Equal("Shopping", row.Category));
+        Assert.Equal(batch.Rows[0].Id, (await db.Transactions.SingleAsync(t => t.Id == imported.Id)).ImportRowId);
+        Assert.Equal(1250, (await new MonthlyAnalytics(db).Build(user, new(2026, 9, 1))).Spent);
+    }
 }

@@ -10,6 +10,7 @@
         public string Category { get; set; } = "Uncategorized";
         public decimal Amount { get; set; }
         public int? ImportRowId { get; set; }
+        public DateTime? DeletedAt { get; set; }
         
 
         public AppUser User { get; set; } = null!;

@@ -43,6 +43,39 @@ namespace FinanceTracker.Api.Migrations
                     b.ToTable("Users");
                 });
 
+            modelBuilder.Entity("FinanceTracker.Api.Models.CategorizationRule", b =>
+                {
+                    b.Property<int>("Id")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("int");
+
+                    SqlServerPropertyBuilderExtensions.UseIdentityColumn(b.Property<int>("Id"));
+
+                    b.Property<string>("Category")
+                        .IsRequired()
+                        .HasMaxLength(100)
+                        .HasColumnType("nvarchar(100)");
+
+                    b.Property<bool>("Enabled")
+                        .HasColumnType("bit");
+
+                    b.Property<string>("Pattern")
+                        .IsRequired()
+                        .HasMaxLength(200)
+                        .HasColumnType("nvarchar(200)")
+                        .UseCollation("SQL_Latin1_General_CP1_CI_AS");
+
+                    b.Property<int>("UserId")
+                        .HasColumnType("int");
+
+                    b.HasKey("Id");
+
+                    b.HasIndex("UserId", "Pattern")
+                        .IsUnique();
+
+                    b.ToTable("CategorizationRules");
+                });
+
             modelBuilder.Entity("FinanceTracker.Api.Models.CategoryLimit", b =>
                 {
                     b.Property<int>("Id")
@@ -244,6 +277,9 @@ namespace FinanceTracker.Api.Migrations
                     b.Property<DateTime>("Date")
                         .HasColumnType("date");
 
+                    b.Property<DateTime?>("DeletedAt")
+                        .HasColumnType("datetime2");
+
                     b.Property<string>("Description")
                         .IsRequired()
                         .HasColumnType("nvarchar(max)");
@@ -263,6 +299,15 @@ namespace FinanceTracker.Api.Migrations
                     b.HasIndex("UserId", "Date");
 
                     b.ToTable("Transactions");
+                });
+
+            modelBuilder.Entity("FinanceTracker.Api.Models.CategorizationRule", b =>
+                {
+                    b.HasOne("FinanceTracker.Api.Models.AppUser", null)
+                        .WithMany()
+                        .HasForeignKey("UserId")
+                        .OnDelete(DeleteBehavior.Cascade)
+                        .IsRequired();
                 });
 
             modelBuilder.Entity("FinanceTracker.Api.Models.CategoryLimit", b =>

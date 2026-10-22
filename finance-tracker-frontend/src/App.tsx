@@ -5,11 +5,13 @@ import Dashboard from "./pages/Dashboard";
 import TransactionsPage from "./pages/TransactionsPage";
 import ProtectedRoute from "./components/ProtectedRoute";
 import Budgets from "./pages/Budgets";
+import CategoryRules from "./pages/CategoryRules";
 
 function App() {
   return (
     <Router>
       <Routes>
+        <Route path="/rules" element={<ProtectedRoute><CategoryRules /></ProtectedRoute>} />
         <Route path="/budgets" element={<ProtectedRoute><Budgets /></ProtectedRoute>} />
         {/* Public routes */}
         <Route path="/login" element={<Login />} />

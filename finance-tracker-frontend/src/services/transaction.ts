@@ -1,16 +1,21 @@
+import { api } from "./finance";
+
 export interface Transaction {
     id: number;
     date: string;
     description: string;
     amount: number;
     category: string;
+    deletedAt?: string | null;
 }
 
 export interface ClassificationResult {
     category: string;
+    source?: "rule" | "model";
+    matchedPattern?: string;
 }
 
-export async function getTransactions(token: string, type?: string, category?: string, filters: { from?: string; to?: string; search?: string } = {}, signal?: AbortSignal): Promise<Transaction[]> {
+export async function getTransactions(token: string, type?: string, category?: string, filters: { from?: string; to?: string; search?: string; deleted?: string } = {}, signal?: AbortSignal): Promise<Transaction[]> {
     if (!token) {
         return [];
     }
@@ -74,7 +79,7 @@ export async function classifyTransaction(token: string, description: string): P
         throw new Error("The classification service returned no category.");
     }
 
-    return { category: predictedCategory };
+    return { category: predictedCategory, source: result.source as ClassificationResult["source"], matchedPattern: result.matchedPattern as string | undefined };
 }
 
 export interface CreateTransactionPayload {
@@ -82,6 +87,7 @@ export interface CreateTransactionPayload {
     description: string;
     amount: number;
     category?: string;
+    type?: "income" | "expense";
 }
 
 export interface UpdateTransactionPayload {
@@ -89,6 +95,7 @@ export interface UpdateTransactionPayload {
     description: string;
     amount: number;
     category?: string;
+    type?: "income" | "expense";
 }
 
 export async function createTransaction(token: string, payload: CreateTransactionPayload): Promise<unknown> {
@@ -134,6 +141,16 @@ export async function updateTransaction(token: string, id: number, payload: Upda
 
     return res.json().catch(() => ({}));
 }
+
+export const bulkCategory = (ids: number[], category: string) => api<{ count: number }>("transaction/bulk-category", {
+    method: "POST", body: JSON.stringify({ ids, category }),
+});
+export const deleteTransactions = (ids: number[]) => api<{ ids: number[]; count: number }>("transaction/delete", {
+    method: "POST", body: JSON.stringify({ ids }),
+});
+export const restoreTransactions = (ids: number[]) => api<{ ids: number[]; count: number }>("transaction/restore", {
+    method: "POST", body: JSON.stringify({ ids }),
+});
 
 function normalizeTransactions(payload: unknown): Transaction[] {
     if (Array.isArray(payload)) {

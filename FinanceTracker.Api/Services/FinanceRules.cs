@@ -26,5 +26,20 @@ public static class FinanceRules
     }
     public static string Fingerprint(DateTime date, string description, decimal amount) =>
         $"{date:yyyy-MM-dd}|{Regex.Replace(description.Trim(), @"\s+", " ").ToUpperInvariant()}|{amount.ToString("F2", CultureInfo.InvariantCulture)}";
-    public static bool ValidMoney(decimal value) => Math.Abs(value) <= 9999999999999999.99m && decimal.Round(value, 2) == value;
+    public static bool ValidMoney(decimal value) => value is >= -9999999999999999.99m and <= 9999999999999999.99m && decimal.Round(value, 2) == value;
+
+    public static decimal TransactionAmount(decimal amount, string? type)
+    {
+        if (amount == 0 || !ValidMoney(amount))
+            throw new ArgumentException("Enter a non-zero amount with at most two decimal places.");
+        // Signed amounts remain supported for existing API clients and statement imports.
+        if (type == null) return amount;
+        if (amount < 0) throw new ArgumentException("Enter a positive amount when choosing Income or Expense.");
+        return type.ToLowerInvariant() switch
+        {
+            "income" => amount,
+            "expense" => -amount,
+            _ => throw new ArgumentException("Choose Income or Expense.")
+        };
+    }
 }

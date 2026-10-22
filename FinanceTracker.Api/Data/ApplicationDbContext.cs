@@ -15,6 +15,7 @@ namespace FinanceTracker.Api.Data
         public DbSet<CategoryLimit> CategoryLimits { get; set; }
         public DbSet<ImportBatch> ImportBatches { get; set; }
         public DbSet<ImportRow> ImportRows { get; set; }
+        public DbSet<CategorizationRule> CategorizationRules { get; set; }
 
 
         protected override void OnModelCreating(ModelBuilder modelBuilder)
@@ -26,6 +27,7 @@ namespace FinanceTracker.Api.Data
                 .Property(t => t.Amount)
                 .HasPrecision(18, 2); // SQL Server decimal(18,2)
             modelBuilder.Entity<Transaction>().Property(t => t.Date).HasColumnType("date");
+            modelBuilder.Entity<Transaction>().HasQueryFilter(t => t.DeletedAt == null);
             modelBuilder.Entity<Transaction>().HasIndex(t => new { t.UserId, t.Date });
             modelBuilder.Entity<Transaction>().HasIndex(t => t.ImportRowId).IsUnique().HasFilter("[ImportRowId] IS NOT NULL");
             modelBuilder.Entity<Transaction>().HasOne<ImportRow>().WithMany().HasForeignKey(t => t.ImportRowId).OnDelete(DeleteBehavior.Restrict);
@@ -42,6 +44,10 @@ namespace FinanceTracker.Api.Data
             modelBuilder.Entity<ImportBatch>().HasIndex(b => new { b.UserId, b.ExpiresAt });
             modelBuilder.Entity<ImportRow>().Property(r => r.Amount).HasPrecision(18, 2);
             modelBuilder.Entity<ImportRow>().Property(r => r.Date).HasColumnType("date");
+            modelBuilder.Entity<CategorizationRule>().Property(r => r.Pattern).HasMaxLength(200).UseCollation("SQL_Latin1_General_CP1_CI_AS");
+            modelBuilder.Entity<CategorizationRule>().Property(r => r.Category).HasMaxLength(100);
+            modelBuilder.Entity<CategorizationRule>().HasIndex(r => new { r.UserId, r.Pattern }).IsUnique();
+            modelBuilder.Entity<CategorizationRule>().HasOne<AppUser>().WithMany().HasForeignKey(r => r.UserId).OnDelete(DeleteBehavior.Cascade);
         }
     }
 }

@@ -38,6 +38,7 @@ public class StatementController(ApplicationDbContext db, StatementParser parser
         var ledger = await db.Transactions.AsNoTracking().Where(t => t.UserId == UserId).Select(t => new { t.Date, t.Description, t.Amount }).ToListAsync();
         var seen = ledger.Select(t => FinanceRules.Fingerprint(t.Date, t.Description, t.Amount)).ToHashSet();
         var categories = await db.Transactions.Where(t => t.UserId == UserId).Select(t => t.Category).Distinct().ToListAsync();
+        var rules = await db.CategorizationRules.AsNoTracking().Where(r => r.UserId == UserId && r.Enabled).ToListAsync();
         // One total deadline; after an outage, the remaining rows stay editable and uncategorized.
         using var deadline = CancellationTokenSource.CreateLinkedTokenSource(HttpContext.RequestAborted);
         deadline.CancelAfter(TimeSpan.FromSeconds(15));
@@ -46,6 +47,12 @@ public class StatementController(ApplicationDbContext db, StatementParser parser
         {
             row.PossibleDuplicate = !seen.Add(FinanceRules.Fingerprint(row.Date!.Value, row.Description, row.Amount!.Value));
             row.Included = !row.PossibleDuplicate;
+            var rule = CategoryRuleMatcher.Match(rules, row.Description);
+            if (rule != null)
+            {
+                row.Category = FinanceRules.Category(rule.Category, categories);
+                continue;
+            }
             if (!unavailable)
             {
                 var suggestion = await classifier.Suggest(row.Description, deadline.Token);

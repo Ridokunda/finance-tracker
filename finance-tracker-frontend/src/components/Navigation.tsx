@@ -12,6 +12,7 @@ export default function Navigation() {
         <NavLink to="/">Dashboard</NavLink>
         <NavLink to="/transactions">Transactions</NavLink>
         <NavLink to="/budgets">Budgets</NavLink>
+        <NavLink to="/rules">Category rules</NavLink>
         <button
           className="secondary-btn"
           onClick={async () => {

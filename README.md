@@ -64,6 +64,15 @@ Open [the local app](http://127.0.0.1:5174), sign in with the demo credentials, 
 
 A fresh user with a R5,000 limit and an imported R1,200 expense sees **R5,000 limit, R1,200 spent, R3,800 remaining**.
 
+## Transaction recovery, bulk editing and category rules
+
+- Manual entry and editing use **Income (money in)** or **Expense (money out)** with a positive ZAR amount. The API applies the sign; statement imports retain their original signed amounts. Existing signed-amount API clients remain supported when `type` is omitted.
+- Select individual transactions or use the table checkbox to select up to 5,000 matching rows. Apply a category to the selection, or delete the selection together. Selections clear when filters or results change. Bulk requests validate ownership and availability for the entire selection before saving any changes.
+- Deletion is recoverable: **Undo deletion** restores the latest selection, and **View → Deleted transactions** supports recovery after a reload or later sign-in. The same date/category/search filters apply. Deleted records are retained indefinitely, preserve import provenance, and are excluded from active transactions, spending, budget summaries, net cash flow and duplicate checks. Restoring puts the original records back into those calculations. Confirming an already confirmed import never resurrects deleted records.
+- **Category rules** supports creating, editing, disabling and deleting personal rules such as `Checkers → Groceries`. Matching uses case-insensitive description substrings and collapses repeated whitespace. The longest matching phrase wins; ties use the oldest saved rule. Duplicate phrases per user are rejected regardless of case.
+- Rules run before the Python classifier in statement previews and category suggestions, including after a classifier outage. New manual entries also apply matching rules while descriptions are entered. A manually chosen category takes precedence for that transaction; edits initially preserve the saved category. A rule can also be saved directly from the transaction form. Rule changes affect future suggestions/previews; existing transactions can be changed explicitly with bulk editing.
+- Apply the new `TransactionRecoveryAndCategoryRules` migration before starting an existing installation, using the intended database connection settings: `dotnet run --project FinanceTracker.Api -c Release --no-launch-profile -- --migrate`.
+
 ## Supported statements and limitations
 
 - **Generic CSV is implemented and tested.** It is not advertised as verified ABSA CSV support. Select date, description and signed-amount columns; choose date format and delimiter. Commas, semicolons, tabs, pipes, quoted fields, embedded newlines and explicit day/month ordering are supported. Amounts use a decimal point and optional correctly grouped thousands commas. Invalid rows remain visible and excluded; fix their source data and preview again to import them.
@@ -111,6 +120,11 @@ All routes below require a bearer token. Existing current-month callers may omit
 | POST | /api/budget/copy-previous | Explicitly replace limits from the prior month |
 | GET | /api/transaction | type/category/from/to/search filters |
 | POST / PUT | /api/transaction, /api/transaction/{id} | Add/edit a calendar-date transaction |
+| POST | /api/transaction/bulk-category | Atomically update selected active transactions; `ids`, `category` |
+| POST | /api/transaction/delete, /restore | Recoverable deletion/restoration; `ids` |
+| GET | /api/transaction?deleted=true | Filtered deleted records owned by the current user |
+| GET / POST | /api/category-rules | List/create personal description rules |
+| PUT / DELETE | /api/category-rules/{id} | Edit/enable/disable/delete an owned rule |
 | GET | /api/transaction/categories | User's normalized category choices |
 | POST | /api/transaction/classify | Editable category suggestion |
 | GET | /api/transaction/net-cash-flow | All-time income minus expenses |
@@ -138,6 +152,8 @@ npx.cmd playwright test
 ```
 
 Playwright starts Vite on port 5174, drives real login/API/SQL interactions, and covers preview without writes, duplicate defaults, outage handling, confirmation, category budgets, drill-down, user isolation and keyboard dialog dismissal. The screenshot test uses the synthetic demo account without confirming its preview. Screenshots are written to `docs/screenshots`.
+
+`transaction-tools.spec.ts` also covers positive income/expense entry, automatic rule matching, bulk category changes, delete/undo, recovery after reload, recalculated analytics and a mobile viewport. Backend workflow tests check rule precedence, outage handling, invalid amounts, user isolation and all-or-nothing selections; SQL tests verify the new migration and retained import provenance.
 
 [CI](.github/workflows/ci.yml) runs frontend lint/build, classifier smoke tests, SQL Server integration tests and Chromium workflow tests. Actual ABSA fixture acceptance remains outstanding.
 
