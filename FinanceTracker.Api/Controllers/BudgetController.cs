@@ -9,6 +9,18 @@ namespace FinanceTracker.Api.Controllers;
 public class BudgetController(ApplicationDbContext db, MonthlyAnalytics analytics) : ControllerBase
 {
     private int UserId => int.Parse(User.FindFirst("UserId")!.Value);
+    [HttpPut("warning-settings")]
+    public async Task<IActionResult> SetWarningSettings(WarningPreferences request)
+    {
+        if (request.ThresholdPercent is < 1 or > 99) return BadRequest("Choose an early-warning threshold between 1% and 99%.");
+        var settings = await db.BudgetWarningSettings.SingleOrDefaultAsync(s => s.UserId == UserId);
+        if (settings == null) { settings = new BudgetWarningSettings { UserId = UserId }; db.BudgetWarningSettings.Add(settings); }
+        settings.Enabled = request.Enabled;
+        settings.ThresholdPercent = request.ThresholdPercent;
+        try { await db.SaveChangesAsync(); }
+        catch (DbUpdateException) { return Conflict("Warning settings changed concurrently. Reload and try again."); }
+        return Ok(new WarningPreferences(settings.Enabled, settings.ThresholdPercent));
+    }
     [HttpGet("current"), HttpGet("summary"), HttpGet("analytics")]
     public async Task<IActionResult> GetBudgetSummary(int? year = null, int? month = null)
     {

@@ -1,0 +1,29 @@
+.planning-fields { display: grid; gap: 16px; border: 0; padding: 0; margin: 0; min-width: 0; }
+.planning-fields p { margin: 0; }
+.page-content .planning-checkbox, .finance-dialog .planning-checkbox { display: flex; flex-direction: row; align-items: center; gap: 8px; }
+.planning-checkbox input[type=checkbox] { width: 18px; height: 18px; padding: 0; accent-color: #2563eb; }
+.planning-success { padding: 12px; border: 1px solid #a7f3d0; border-radius: 8px; background: #ecfdf5; color: #065f46; }
+.planning-actions { display: flex; flex-wrap: wrap; gap: 8px; align-items: center; }
+.bill-schedule-list, .budget-warnings ul, .upcoming-bills ul { list-style: none; padding: 0; margin: 0; }
+.bill-schedule-list li, .bill-occurrence { display: flex; flex-wrap: wrap; justify-content: space-between; gap: 16px; padding: 18px 0; border-top: 1px solid #e2e8f0; }
+.bill-occurrence > div, .bill-schedule-list li > div { min-width: 0; overflow-wrap: anywhere; }
+.bill-occurrence h3, .bill-schedule-list h3 { margin: 0 0 8px; font-size: 16px; }
+.bill-occurrence p, .bill-schedule-list p { margin: 8px 0; font-size: 13px; }
+.bill-occurrence-actions { display: grid; align-content: start; justify-items: start; gap: 10px; }
+.bill-status { display: inline-block; padding: 5px 10px; border-radius: 20px; background: #eff6ff; color: #1e40af; font-size: 12px; }
+.bill-status-paid { color: #065f46; background: #ecfdf5; }
+.bill-status-overdue, .bill-status-payment-deleted, .bill-status-payment-changed { color: #9f1239; background: #fff1f2; }
+.budget-warnings h2, .upcoming-bills h2 { font-size: 17px; margin: 0 0 12px; }
+.budget-warnings li + li { margin-top: 10px; }
+.budget-warnings li p { margin: 8px 0 0; }
+.upcoming-bills .recent-title a { font-size: 13px; }
+.upcoming-bills li { display: flex; gap: 16px; justify-content: space-between; align-items: start; padding: 12px 0; border-top: 1px solid #e2e8f0; }
+.upcoming-bills li > div { min-width: 0; overflow-wrap: anywhere; }
+.upcoming-bills li span { white-space: nowrap; }
+.upcoming-bills li p { font-size: 12px; margin: 6px 0 0; }
+@media (max-width: 700px) {
+  .bill-occurrence-actions, .planning-actions { width: 100%; }
+  .bill-occurrence-actions { justify-items: stretch; }
+  .bill-occurrence-actions a { padding: 8px 0; }
+  .planning-actions button { flex: 1 1 120px; }
+}

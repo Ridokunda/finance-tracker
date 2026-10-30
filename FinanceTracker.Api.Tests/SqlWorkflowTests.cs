@@ -165,6 +165,61 @@ public class SqlWorkflowTests(SqlDatabase database) : IClassFixture<SqlDatabase>
     }
 
     [SqlFact]
+    public async Task ConcurrentBillPaymentsCreateOneExpenseAndRecoverWithoutLosingHistory()
+    {
+        await using var setup = database.Open(); var user = await User(setup); var other = await User(setup);
+        var bill = new RecurringBill { UserId = user, Name = "Streaming", MatchText = "Netflix", Amount = 800, Category = "Entertainment", Frequency = "monthly", FirstDueDate = new(2026, 9, 10) };
+        setup.RecurringBills.Add(bill);
+        setup.MonthlyBudgets.Add(new() { UserId = user, Year = 2026, Month = 9, LimitAmount = 1000, CategoryLimits = [new() { Category = "Entertainment", LimitAmount = 1000 }] });
+        await setup.SaveChangesAsync();
+        Assert.Equal(0, (await new MonthlyAnalytics(setup).Build(user, new(2026, 9, 1))).Spent);
+        await using var first = database.Open(); await using var second = database.Open();
+        var request = new RecurringBillsController.PaymentRequest(new(2026, 9, 10));
+        var results = await Task.WhenAll(AsUser(new RecurringBillsController(first), user).Pay(bill.Id, request), AsUser(new RecurringBillsController(second), user).Pay(bill.Id, request));
+        Assert.All(results, result => Assert.IsType<OkObjectResult>(result));
+        Assert.Single(await setup.Transactions.Where(t => t.UserId == user).ToListAsync());
+        Assert.Single(await setup.BillPayments.Where(p => p.RecurringBillId == bill.Id).ToListAsync());
+        var summary = await new MonthlyAnalytics(setup).Build(user, new(2026, 9, 1));
+        Assert.Equal(800, summary.Spent); Assert.Equal(2, summary.Warnings.Count);
+        Assert.All(summary.Warnings, warning => Assert.Equal("approaching", warning.Level));
+        var transaction = await setup.Transactions.SingleAsync(t => t.UserId == user);
+        var otherBill = new RecurringBill { UserId = other, Name = "Other", MatchText = "Other", Amount = 800, Frequency = "monthly", FirstDueDate = new(2026, 9, 10) };
+        setup.RecurringBills.Add(otherBill); await setup.SaveChangesAsync();
+        Assert.IsType<NotFoundObjectResult>(await AsUser(new RecurringBillsController(setup), other).Pay(otherBill.Id, request with { TransactionId = transaction.Id }));
+        var transactions = AsUser(new TransactionController(setup, new Offline()), user);
+        Assert.IsType<OkObjectResult>(await transactions.Delete(new([transaction.Id])));
+        Assert.Empty((await new MonthlyAnalytics(setup).Build(user, new(2026, 9, 1))).Warnings);
+        Assert.IsType<ConflictObjectResult>(await AsUser(new RecurringBillsController(setup), user).Pay(bill.Id, request));
+        Assert.IsType<OkObjectResult>(await transactions.Restore(new([transaction.Id])));
+        Assert.Equal(2, (await new MonthlyAnalytics(setup).Build(user, new(2026, 9, 1))).Warnings.Count);
+        Assert.IsType<NoContentResult>(await AsUser(new RecurringBillsController(setup), user).Archive(bill.Id));
+        setup.ChangeTracker.Clear();
+        Assert.True((await setup.RecurringBills.SingleAsync(b => b.Id == bill.Id)).Archived);
+        Assert.Single(await setup.BillPayments.IgnoreQueryFilters().Where(p => p.RecurringBillId == bill.Id).ToListAsync());
+    }
+
+    [SqlFact]
+    public async Task WarningPreferencesAndBillImportMatchingPersistAcrossConnections()
+    {
+        await using var setup = database.Open(); var user = await User(setup); var other = await User(setup);
+        var bill = new RecurringBill { UserId = user, Name = "Streaming", MatchText = "Netflix", Amount = 100, Category = "Entertainment", Frequency = "monthly", FirstDueDate = new(2026, 9, 10) };
+        setup.RecurringBills.Add(bill); await setup.SaveChangesAsync();
+        Assert.IsType<OkObjectResult>(await AsUser(new BudgetController(setup, new MonthlyAnalytics(setup)), user).SetWarningSettings(new(false, 90)));
+        Assert.IsType<OkObjectResult>(await AsUser(new RecurringBillsController(setup), user).Pay(bill.Id, new(new(2026, 9, 10))));
+        await using var read = database.Open();
+        var preferences = (await new MonthlyAnalytics(read).Build(user, new(2026, 9, 1))).WarningSettings;
+        Assert.False(preferences.Enabled); Assert.Equal(90, preferences.ThresholdPercent);
+        Assert.True((await new MonthlyAnalytics(read).Build(other, new(2026, 9, 1))).WarningSettings.Enabled);
+        var batch = await Preview(read, user, "Date,Description,Amount\n2026-09-12,NETFLIX card debit,-100\n");
+        Assert.True(batch.Rows[0].PossibleDuplicate); Assert.False(batch.Rows[0].Included);
+        var unrelated = await Preview(read, other, "Date,Description,Amount\n2026-09-12,NETFLIX card debit,-100\n");
+        Assert.False(unrelated.Rows[0].PossibleDuplicate);
+        var payment = await read.BillPayments.SingleAsync(p => p.RecurringBillId == bill.Id);
+        read.BillPayments.Add(new BillPayment { RecurringBillId = bill.Id, DueDate = new(2026, 10, 10), TransactionId = payment.TransactionId });
+        await Assert.ThrowsAsync<DbUpdateException>(() => read.SaveChangesAsync());
+    }
+
+    [SqlFact]
     public async Task RecoveryBulkEditingAndRulesPersistWithImportProvenance()
     {
         await using var db = database.Open(); var user = await User(db); var other = await User(db);

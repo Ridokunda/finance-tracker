@@ -79,7 +79,10 @@ export type MonthlySummary = {
   netCashFlow: number;
   categories: CategoryTotal[];
   trends: { month: string; income: number; expenses: number }[];
+  warningSettings: { enabled: boolean; thresholdPercent: number };
+  warnings: BudgetWarning[];
 };
+export type BudgetWarning = { scope: string; category: string | null; limit: number; spent: number; percentUsed: number | null; level: "approaching" | "reached" | "over" };
 export const analytics = (month: string) =>
   api<MonthlySummary>(`budget/analytics?${monthQuery(month)}`);
 export type DateRange = { from: string; to: string };

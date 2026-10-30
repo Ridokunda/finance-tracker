@@ -37,6 +37,7 @@ public class StatementController(ApplicationDbContext db, StatementParser parser
         var valid = parsed.Rows.Where(r => r.Error == null).ToList();
         var ledger = await db.Transactions.AsNoTracking().Where(t => t.UserId == UserId).Select(t => new { t.Date, t.Description, t.Amount }).ToListAsync();
         var seen = ledger.Select(t => FinanceRules.Fingerprint(t.Date, t.Description, t.Amount)).ToHashSet();
+        var recurringPayments = await RecurringPaymentMatcher.Load(db, UserId);
         var categories = await db.Transactions.Where(t => t.UserId == UserId).Select(t => t.Category).Distinct().ToListAsync();
         var rules = await db.CategorizationRules.AsNoTracking().Where(r => r.UserId == UserId && r.Enabled).ToListAsync();
         // One total deadline; after an outage, the remaining rows stay editable and uncategorized.
@@ -45,7 +46,8 @@ public class StatementController(ApplicationDbContext db, StatementParser parser
         var unavailable = false;
         foreach (var row in valid)
         {
-            row.PossibleDuplicate = !seen.Add(FinanceRules.Fingerprint(row.Date!.Value, row.Description, row.Amount!.Value));
+            row.PossibleDuplicate = !seen.Add(FinanceRules.Fingerprint(row.Date!.Value, row.Description, row.Amount!.Value))
+                || RecurringPaymentMatcher.Matches(recurringPayments, row.Date.Value, row.Description, row.Amount.Value);
             row.Included = !row.PossibleDuplicate;
             var rule = CategoryRuleMatcher.Match(rules, row.Description);
             if (rule != null)
@@ -61,6 +63,8 @@ public class StatementController(ApplicationDbContext db, StatementParser parser
             }
         }
         if (unavailable) parsed.Notices.Add("Classification service unavailable or timed out. Review uncategorized rows and choose categories manually.");
+        if (parsed.Rows.Any(r => r.PossibleDuplicate) && recurringPayments.Count > 0)
+            parsed.Notices.Add("Possible duplicates also include recorded recurring payments with matching descriptions and amounts within seven days. Keep a duplicate only for a separate purchase.");
         var batch = new ImportBatch { UserId = UserId, Rows = parsed.Rows, NoticesJson = JsonSerializer.Serialize(parsed.Notices), StatementStart = parsed.Start, StatementEnd = parsed.End };
         db.ImportBatches.Add(batch);
         await db.SaveChangesAsync();
@@ -89,6 +93,7 @@ public class StatementController(ApplicationDbContext db, StatementParser parser
         var ledger = await db.Transactions.AsNoTracking().Where(t => t.UserId == UserId && (t.ImportRowId == null || !db.ImportRows.Any(r => r.Id == t.ImportRowId && r.ImportBatchId == id))).Select(t => new { t.Date, t.Description, t.Amount }).ToListAsync();
         var seen = ledger.Select(t => FinanceRules.Fingerprint(t.Date, t.Description, t.Amount)).ToHashSet();
         var additions = new List<Transaction>();
+        var recurringPayments = await RecurringPaymentMatcher.Load(db, UserId);
         foreach (var row in batch.Rows.OrderBy(r => r.RowNumber))
         {
             var decision = request.Rows.Single(r => r.Id == row.Id);
@@ -98,7 +103,8 @@ public class StatementController(ApplicationDbContext db, StatementParser parser
             catch (ArgumentException ex) { return BadRequest(ex.Message); }
             if (decision.Included)
             {
-                var duplicate = !seen.Add(FinanceRules.Fingerprint(row.Date!.Value, row.Description, row.Amount!.Value));
+                var duplicate = !seen.Add(FinanceRules.Fingerprint(row.Date!.Value, row.Description, row.Amount!.Value))
+                    || RecurringPaymentMatcher.Matches(recurringPayments, row.Date.Value, row.Description, row.Amount.Value);
                 if ((row.PossibleDuplicate || duplicate) && !decision.KeepDuplicate) return Conflict("A selected row matches an existing or repeated purchase. Explicitly choose Keep duplicate or exclude it.");
                 additions.Add(new Transaction { UserId = UserId, Date = row.Date.Value.Date, Description = row.Description, Amount = row.Amount.Value, Category = category, ImportRowId = row.Id });
             }

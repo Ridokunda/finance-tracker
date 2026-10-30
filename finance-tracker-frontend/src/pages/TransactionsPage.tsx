@@ -21,7 +21,7 @@ export default function TransactionsPage() {
   const [category, setCategory] = useState(() => new URLSearchParams(location.search).get("category") || "");
   const [type, setType] = useState("");
   const [search, setSearch] = useState("");
-  const [deleted, setDeleted] = useState(false);
+  const [deleted, setDeleted] = useState(() => new URLSearchParams(location.search).get("view") === "deleted");
   const [transactions, setTransactions] = useState<Transaction[]>([]);
   const [selected, setSelected] = useState<number[]>([]);
   const [bulkTarget, setBulkTarget] = useState("Uncategorized");

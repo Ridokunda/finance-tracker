@@ -16,6 +16,9 @@ namespace FinanceTracker.Api.Data
         public DbSet<ImportBatch> ImportBatches { get; set; }
         public DbSet<ImportRow> ImportRows { get; set; }
         public DbSet<CategorizationRule> CategorizationRules { get; set; }
+        public DbSet<RecurringBill> RecurringBills { get; set; }
+        public DbSet<BillPayment> BillPayments { get; set; }
+        public DbSet<BudgetWarningSettings> BudgetWarningSettings { get; set; }
 
 
         protected override void OnModelCreating(ModelBuilder modelBuilder)
@@ -48,6 +51,25 @@ namespace FinanceTracker.Api.Data
             modelBuilder.Entity<CategorizationRule>().Property(r => r.Category).HasMaxLength(100);
             modelBuilder.Entity<CategorizationRule>().HasIndex(r => new { r.UserId, r.Pattern }).IsUnique();
             modelBuilder.Entity<CategorizationRule>().HasOne<AppUser>().WithMany().HasForeignKey(r => r.UserId).OnDelete(DeleteBehavior.Cascade);
+            modelBuilder.Entity<RecurringBill>().Property(b => b.Name).HasMaxLength(120);
+            modelBuilder.Entity<RecurringBill>().Property(b => b.MatchText).HasMaxLength(200);
+            modelBuilder.Entity<RecurringBill>().Property(b => b.Category).HasMaxLength(100);
+            modelBuilder.Entity<RecurringBill>().Property(b => b.Frequency).HasMaxLength(20);
+            modelBuilder.Entity<RecurringBill>().Property(b => b.Amount).HasPrecision(18, 2);
+            modelBuilder.Entity<RecurringBill>().Property(b => b.FirstDueDate).HasColumnType("date");
+            modelBuilder.Entity<RecurringBill>().Property(b => b.EndDate).HasColumnType("date");
+            modelBuilder.Entity<RecurringBill>().HasIndex(b => b.UserId);
+            modelBuilder.Entity<RecurringBill>().HasOne<AppUser>().WithMany().HasForeignKey(b => b.UserId).OnDelete(DeleteBehavior.Restrict);
+            modelBuilder.Entity<RecurringBill>().ToTable(t => t.HasCheckConstraint("CK_RecurringBill_Amount", "[Amount] > 0"));
+            modelBuilder.Entity<BillPayment>().Property(p => p.DueDate).HasColumnType("date");
+            modelBuilder.Entity<BillPayment>().HasIndex(p => new { p.RecurringBillId, p.DueDate }).IsUnique();
+            modelBuilder.Entity<BillPayment>().HasIndex(p => p.TransactionId).IsUnique();
+            modelBuilder.Entity<BillPayment>().HasOne<RecurringBill>().WithMany().HasForeignKey(p => p.RecurringBillId).OnDelete(DeleteBehavior.Restrict);
+            modelBuilder.Entity<BillPayment>().HasOne(p => p.Transaction).WithMany().HasForeignKey(p => p.TransactionId).OnDelete(DeleteBehavior.Restrict);
+            modelBuilder.Entity<BillPayment>().HasQueryFilter(p => p.Transaction.DeletedAt == null);
+            modelBuilder.Entity<BudgetWarningSettings>().HasKey(s => s.UserId);
+            modelBuilder.Entity<BudgetWarningSettings>().HasOne<AppUser>().WithMany().HasForeignKey(s => s.UserId).OnDelete(DeleteBehavior.Cascade);
+            modelBuilder.Entity<BudgetWarningSettings>().ToTable(t => t.HasCheckConstraint("CK_BudgetWarning_Threshold", "[ThresholdPercent] BETWEEN 1 AND 99"));
         }
     }
 }

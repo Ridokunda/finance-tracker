@@ -43,6 +43,53 @@ namespace FinanceTracker.Api.Migrations
                     b.ToTable("Users");
                 });
 
+            modelBuilder.Entity("FinanceTracker.Api.Models.BillPayment", b =>
+                {
+                    b.Property<int>("Id")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("int");
+
+                    SqlServerPropertyBuilderExtensions.UseIdentityColumn(b.Property<int>("Id"));
+
+                    b.Property<DateTime>("DueDate")
+                        .HasColumnType("date");
+
+                    b.Property<int>("RecurringBillId")
+                        .HasColumnType("int");
+
+                    b.Property<int>("TransactionId")
+                        .HasColumnType("int");
+
+                    b.HasKey("Id");
+
+                    b.HasIndex("TransactionId")
+                        .IsUnique();
+
+                    b.HasIndex("RecurringBillId", "DueDate")
+                        .IsUnique();
+
+                    b.ToTable("BillPayments");
+                });
+
+            modelBuilder.Entity("FinanceTracker.Api.Models.BudgetWarningSettings", b =>
+                {
+                    b.Property<int>("UserId")
+                        .HasColumnType("int");
+
+                    b.Property<bool>("Enabled")
+                        .HasColumnType("bit");
+
+                    b.Property<int>("ThresholdPercent")
+                        .HasColumnType("int");
+
+                    b.HasKey("UserId");
+
+                    b.ToTable("BudgetWarningSettings", t =>
+                        {
+                            t.HasCheckConstraint("CK_BudgetWarning_Threshold", "[ThresholdPercent] BETWEEN 1 AND 99");
+                        });
+                });
+
             modelBuilder.Entity("FinanceTracker.Api.Models.CategorizationRule", b =>
                 {
                     b.Property<int>("Id")
@@ -238,6 +285,63 @@ namespace FinanceTracker.Api.Migrations
                         });
                 });
 
+            modelBuilder.Entity("FinanceTracker.Api.Models.RecurringBill", b =>
+                {
+                    b.Property<int>("Id")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("int");
+
+                    SqlServerPropertyBuilderExtensions.UseIdentityColumn(b.Property<int>("Id"));
+
+                    b.Property<decimal>("Amount")
+                        .HasPrecision(18, 2)
+                        .HasColumnType("decimal(18,2)");
+
+                    b.Property<bool>("Archived")
+                        .HasColumnType("bit");
+
+                    b.Property<string>("Category")
+                        .IsRequired()
+                        .HasMaxLength(100)
+                        .HasColumnType("nvarchar(100)");
+
+                    b.Property<bool>("Enabled")
+                        .HasColumnType("bit");
+
+                    b.Property<DateTime?>("EndDate")
+                        .HasColumnType("date");
+
+                    b.Property<DateTime>("FirstDueDate")
+                        .HasColumnType("date");
+
+                    b.Property<string>("Frequency")
+                        .IsRequired()
+                        .HasMaxLength(20)
+                        .HasColumnType("nvarchar(20)");
+
+                    b.Property<string>("MatchText")
+                        .IsRequired()
+                        .HasMaxLength(200)
+                        .HasColumnType("nvarchar(200)");
+
+                    b.Property<string>("Name")
+                        .IsRequired()
+                        .HasMaxLength(120)
+                        .HasColumnType("nvarchar(120)");
+
+                    b.Property<int>("UserId")
+                        .HasColumnType("int");
+
+                    b.HasKey("Id");
+
+                    b.HasIndex("UserId");
+
+                    b.ToTable("RecurringBills", t =>
+                        {
+                            t.HasCheckConstraint("CK_RecurringBill_Amount", "[Amount] > 0");
+                        });
+                });
+
             modelBuilder.Entity("FinanceTracker.Api.Models.RevokedToken", b =>
                 {
                     b.Property<int>("Id")
@@ -301,6 +405,32 @@ namespace FinanceTracker.Api.Migrations
                     b.ToTable("Transactions");
                 });
 
+            modelBuilder.Entity("FinanceTracker.Api.Models.BillPayment", b =>
+                {
+                    b.HasOne("FinanceTracker.Api.Models.RecurringBill", null)
+                        .WithMany()
+                        .HasForeignKey("RecurringBillId")
+                        .OnDelete(DeleteBehavior.Restrict)
+                        .IsRequired();
+
+                    b.HasOne("FinanceTracker.Api.Models.Transaction", "Transaction")
+                        .WithMany()
+                        .HasForeignKey("TransactionId")
+                        .OnDelete(DeleteBehavior.Restrict)
+                        .IsRequired();
+
+                    b.Navigation("Transaction");
+                });
+
+            modelBuilder.Entity("FinanceTracker.Api.Models.BudgetWarningSettings", b =>
+                {
+                    b.HasOne("FinanceTracker.Api.Models.AppUser", null)
+                        .WithMany()
+                        .HasForeignKey("UserId")
+                        .OnDelete(DeleteBehavior.Cascade)
+                        .IsRequired();
+                });
+
             modelBuilder.Entity("FinanceTracker.Api.Models.CategorizationRule", b =>
                 {
                     b.HasOne("FinanceTracker.Api.Models.AppUser", null)
@@ -346,6 +476,15 @@ namespace FinanceTracker.Api.Migrations
                         .IsRequired();
 
                     b.Navigation("User");
+                });
+
+            modelBuilder.Entity("FinanceTracker.Api.Models.RecurringBill", b =>
+                {
+                    b.HasOne("FinanceTracker.Api.Models.AppUser", null)
+                        .WithMany()
+                        .HasForeignKey("UserId")
+                        .OnDelete(DeleteBehavior.Restrict)
+                        .IsRequired();
                 });
 
             modelBuilder.Entity("FinanceTracker.Api.Models.Transaction", b =>

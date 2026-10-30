@@ -14,7 +14,9 @@ async function dashboard(page: Page, now = "2026-10-21T22:30:00Z") {
     year: 2026, month: 8, hasBudget: true, budget: 2000, spent: 250,
     remaining: 1750, status: "ok", needsReconfirmation: false, income: 900,
     netCashFlow: 650, categories: [], trends: [],
+    warningSettings: { enabled: true, thresholdPercent: 80 }, warnings: [],
   } }));
+  await page.route("**/api/recurring-bills/occurrences?*", route => route.fulfill({ json: [] }));
   await page.route(/\/api\/transaction\?/, route => route.fulfill({ json: [] }));
 }
 
