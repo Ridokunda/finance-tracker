@@ -73,7 +73,7 @@ test("login, review during classifier outage, confirm, budget and dashboard dril
   await page.getByRole("button", { name: "Save budget", exact: true }).click();
   await expect(page.getByText("Budget saved.", { exact: true })).toBeVisible();
   await page.getByRole("link", { name: "Dashboard", exact: true }).click();
-  await page.getByRole("link", { name: "Groceries", exact: true }).click();
+  await page.locator(".legend").getByRole("link", { name: "Groceries", exact: true }).click();
   await expect(page.getByLabel("Category", { exact: true })).toHaveValue(
     "Groceries",
   );

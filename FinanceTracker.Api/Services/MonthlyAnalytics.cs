@@ -3,9 +3,12 @@ using Microsoft.EntityFrameworkCore;
 namespace FinanceTracker.Api.Services;
 public record CategorySummary(string Category, decimal? Limit, decimal Spent, decimal? Remaining, decimal? Progress, string Status);
 public record TrendSummary(string Month, decimal Income, decimal Expenses);
+public record WarningPreferences(bool Enabled, int ThresholdPercent);
+public record BudgetWarning(string Scope, string? Category, decimal Limit, decimal Spent, decimal? PercentUsed, string Level);
 public record MonthlySummary(int Year, int Month, bool HasBudget, decimal Budget, decimal Spent, decimal Remaining,
     string Status, bool NeedsReconfirmation, decimal Income, decimal NetCashFlow,
-    IReadOnlyList<CategorySummary> Categories, IReadOnlyList<TrendSummary> Trends);
+    IReadOnlyList<CategorySummary> Categories, IReadOnlyList<TrendSummary> Trends,
+    WarningPreferences WarningSettings, IReadOnlyList<BudgetWarning> Warnings);
 public class MonthlyAnalytics(ApplicationDbContext db)
 {
     public async Task<MonthlySummary> Build(int userId, DateTime start)
@@ -33,7 +36,24 @@ public class MonthlyAnalytics(ApplicationDbContext db)
             return new TrendSummary(month.ToString("yyyy-MM"), rows.Where(t => t.Amount > 0).Sum(t => t.Amount), -rows.Where(t => t.Amount < 0).Sum(t => t.Amount));
         }).ToList();
         var amount = budget?.LimitAmount ?? 0;
+        var savedSettings = await db.BudgetWarningSettings.AsNoTracking().SingleOrDefaultAsync(s => s.UserId == userId);
+        var settings = new WarningPreferences(savedSettings?.Enabled ?? true, savedSettings?.ThresholdPercent ?? 80);
+        var warnings = new List<BudgetWarning>();
+        if (settings.Enabled && budget != null && !budget.NeedsReconfirmation && amount >= 0)
+        {
+            AddWarning(warnings, "overall", null, amount, spent, settings.ThresholdPercent);
+            foreach (var category in categories.Where(c => c.Limit != null))
+                AddWarning(warnings, "category", category.Category, category.Limit!.Value, category.Spent, settings.ThresholdPercent);
+        }
         return new(start.Year, start.Month, budget != null, amount, spent, amount - spent,
-            budget == null ? "unset" : spent > amount ? "over" : "ok", budget?.NeedsReconfirmation ?? false, income, income - spent, categories, trends);
+            budget == null ? "unset" : spent > amount ? "over" : "ok", budget?.NeedsReconfirmation ?? false, income, income - spent, categories, trends, settings, warnings);
+    }
+
+    private static void AddWarning(List<BudgetWarning> warnings, string scope, string? category, decimal limit, decimal spent, int threshold)
+    {
+        if (limit < 0 || (limit == 0 && spent == 0)) return;
+        if (limit > 0 && spent * 100 < limit * threshold) return;
+        warnings.Add(new(scope, category, limit, spent, limit > 0 ? decimal.Round(spent / limit * 100, 1) : null,
+            spent > limit ? "over" : spent == limit ? "reached" : "approaching"));
     }
 }

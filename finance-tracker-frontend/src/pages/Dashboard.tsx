@@ -15,6 +15,9 @@ import MonthSelector from "../components/MonthSelector";
 import Navigation from "../components/Navigation";
 import Dialog from "../components/Dialog";
 import NetCashFlowCard from "../components/NetCashFlowCard";
+import BudgetWarnings from "../components/BudgetWarnings";
+import UpcomingBillsCard from "../components/UpcomingBillsCard";
+import "./Planning.css";
 
 const EMPTY_BUDGET: BudgetSummary = {
   budget: 0,
@@ -148,6 +151,8 @@ export default function Dashboard() {
       <div className="page-heading"><h1>Your monthly overview</h1><MonthSelector month={month} onChange={setMonth} /></div>
       <main className="grid">
         <div className="column">
+          {!loading && monthly && <BudgetWarnings summary={monthly} month={month} />}
+          <UpcomingBillsCard key={month} month={month} refreshKey={cashFlowRevision} />
           <div className="row-cards">
             <section className="card h-lg">
               <div className="card-title">Monthly Budget</div>{monthly?.needsReconfirmation && <p className="notice">Reconfirm this limit: earlier imports may have changed it. <a href="/budgets">Review budget</a></p>}

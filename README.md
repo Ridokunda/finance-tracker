@@ -1,6 +1,6 @@
-# Finance Tracker — statement review and monthly budgets
+# Finance Tracker — statements, budgets and recurring bills
 
-A South African personal-finance portfolio application: import a statement, review categories and possible duplicates, confirm transactions, and understand monthly spending against budgets.
+A South African personal-finance portfolio application: review statement imports, track recurring bills and subscriptions, and understand spending with category budgets and configurable warnings.
 
 React/TypeScript + ASP.NET Core 8 + SQL Server + a Python transaction classifier. All amounts are ZAR. Positive amounts are inflows; negative amounts are expenses. Income minus expenses is **net cash flow**.
 
@@ -75,6 +75,21 @@ The net cash flow tile has its own period selector: **This month**, **Last month
 - Rules run before the Python classifier in statement previews and category suggestions, including after a classifier outage. New manual entries also apply matching rules while descriptions are entered. A manually chosen category takes precedence for that transaction; edits initially preserve the saved category. A rule can also be saved directly from the transaction form. Rule changes affect future suggestions/previews; existing transactions can be changed explicitly with bulk editing.
 - Apply the new `TransactionRecoveryAndCategoryRules` migration before starting an existing installation, using the intended database connection settings: `dotnet run --project FinanceTracker.Api -c Release --no-launch-profile -- --migrate`.
 
+## Recurring bills, subscriptions and budget warnings
+
+- **Recurring bills** supports weekly, fortnightly, monthly and yearly schedules with an expected amount, category, first due date and optional inclusive end date. Monthly and yearly dates retain the original day: January 31 becomes February 28 and then March 31; February 29 returns in a leap year.
+- The selected month shows upcoming, due, overdue and paid occurrences. The dashboard lists up to five outstanding payments and their total expected cost. Edit a schedule, pause/resume reminders, or archive it; recorded payment history remains. Pausing or archiving reminders does not cancel a subscription with its provider.
+- Schedules do not create expenses automatically. **Record or link payment** either records a single expense with its actual date/amount, or links an existing imported/manual expense. Possible matches use the same amount or matching statement phrase within seven days of the chosen payment date. Recording a separate expense when matches exist requires explicit confirmation. Each occurrence accepts one payment, each expense links to one occurrence, and retries return the existing payment. SQL saves the new expense and payment link together.
+- Deleting a linked transaction shows **Payment deleted**, with a link to restore it in Transactions. Changing it to income shows **Payment needs correction**. Restore/correct it or unlink it before recording a replacement. Unlinking leaves the transaction in the ledger. Editing, pausing and archiving schedules preserves recorded occurrences.
+- Statement previews also flag possible duplicates of recorded recurring payments when the statement phrase and actual amount match within seven days. Confirmation rechecks the latest ledger. Matching is a hint, not bank reconciliation; keep a duplicate explicitly only when it is a separate purchase.
+- **Budget warnings** appear on the dashboard and Budgets page for both the overall monthly limit and category limits. The default early warning is 80%; **Warning preferences** saves a personal threshold from 1–99% or disables warnings. Enabled warnings also distinguish a reached limit from overspending. Settings apply to every month.
+- Warnings use active recorded expenses only, update when those screens load, and exclude income, deleted transactions and planned bills. Unset or unreconfirmed budgets do not generate warnings. A zero limit warns only after spending occurs. These are in-app notices; no email, push notifications or automatic payments are sent.
+- Existing installations must apply `RecurringBillsAndBudgetWarnings` with their intended database connection before starting the updated API:
+
+  ```powershell
+  dotnet run --project FinanceTracker.Api -c Release --no-launch-profile -- --migrate
+  ```
+
 ## Supported statements and limitations
 
 - **Generic CSV is implemented and tested.** It is not advertised as verified ABSA CSV support. Select date, description and signed-amount columns; choose date format and delimiter. Commas, semicolons, tabs, pipes, quoted fields, embedded newlines and explicit day/month ordering are supported. Amounts use a decimal point and optional correctly grouped thousands commas. Invalid rows remain visible and excluded; fix their source data and preview again to import them.
@@ -87,7 +102,7 @@ The net cash flow tile has its own period selector: **This month**, **Last month
 
 ```mermaid
 flowchart LR
-  UI[React: dashboard / transactions / budgets] --> API[Authenticated ASP.NET controllers]
+  UI[React: dashboard / transactions / budgets / recurring bills] --> API[Authenticated ASP.NET controllers]
   API --> SQL[(SQL Server)]
   API --> Parser[CsvHelper / positional PdfPig parser]
   API --> Classifier[Python TF-IDF classifier]
@@ -120,6 +135,13 @@ All routes below require a bearer token. Existing current-month callers may omit
 | GET | /api/budget/current, /summary, /analytics | Shared monthly summary; year/month query |
 | POST | /api/budget/set | Overall amount and optional category limits |
 | POST | /api/budget/copy-previous | Explicitly replace limits from the prior month |
+| PUT | /api/budget/warning-settings | Save personal `enabled` and `thresholdPercent` preferences |
+| GET / POST | /api/recurring-bills | List/create owned recurring bills and subscriptions |
+| PUT / DELETE | /api/recurring-bills/{id} | Edit/pause or archive a schedule |
+| GET | /api/recurring-bills/occurrences | Scheduled and recorded payments; year/month query |
+| GET | /api/recurring-bills/{id}/payment-candidates | Possible existing expenses; date and optional amount query |
+| POST | /api/recurring-bills/{id}/payments | Retry-safe payment: dueDate plus transactionId, or paymentDate/amount |
+| DELETE | /api/recurring-bills/{id}/payments?dueDate=YYYY-MM-DD | Unlink a payment while retaining its ledger transaction |
 | GET | /api/transaction | type/category/from/to/search filters |
 | POST / PUT | /api/transaction, /api/transaction/{id} | Add/edit a calendar-date transaction |
 | POST | /api/transaction/bulk-category | Atomically update selected active transactions; `ids`, `category` |
@@ -158,6 +180,8 @@ Playwright starts Vite on port 5174, drives real login/API/SQL interactions, and
 `npx.cmd playwright test e2e/net-cash-flow.spec.ts` runs the cash flow browser checks with mocked API responses, without SQL Server. It covers presets, South African dates with a browser in another timezone, year/leap-year boundaries, inclusive custom dates, invalid ranges, empty periods, retry and a 320px viewport.
 
 `transaction-tools.spec.ts` also covers positive income/expense entry, automatic rule matching, bulk category changes, delete/undo, recovery after reload, recalculated analytics and a mobile viewport. Backend workflow tests check rule precedence, outage handling, invalid amounts, user isolation and all-or-nothing selections; SQL tests verify the new migration and retained import provenance.
+
+`planning.spec.ts` covers schedule creation, recording and linking payments without duplicating spending, warning thresholds/preferences, deleted payment recovery, pause/resume/archive behavior and mobile layouts. Backend tests cover month-end/leap-year recurrence, zero and unreconfirmed budgets, import matching, ownership and concurrent payment retries against SQL Server.
 
 [CI](.github/workflows/ci.yml) runs frontend lint/build, classifier smoke tests, SQL Server integration tests and Chromium workflow tests. Actual ABSA fixture acceptance remains outstanding.
 

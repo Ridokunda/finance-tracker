@@ -4,7 +4,10 @@ import type { MonthlySummary } from "../services/finance";
 import Navigation from "../components/Navigation";
 import MonthSelector from "../components/MonthSelector";
 import CategorySelect from "../components/CategorySelect";
+import BudgetWarnings from "../components/BudgetWarnings";
+import BudgetWarningSettings from "../components/BudgetWarningSettings";
 import "../pages/Dashboard.css";
+import "./Planning.css";
 export default function Budgets() {
   const [month, setMonth] = useState(initialMonth);
   const loadRevision = useRef(0);
@@ -67,6 +70,12 @@ export default function Budgets() {
         {busy && <p role="status">Loading or saving budget…</p>}
         {summary && (
           <>
+            <BudgetWarnings summary={summary} month={month} showEmpty />
+            <BudgetWarningSettings key={month} initial={summary.warningSettings} onSaved={async () => {
+              const revision = loadRevision.current;
+              const data = await analytics(month);
+              if (revision === loadRevision.current) setSummary(data);
+            }} />
             <form
               className="card budget-form"
               onSubmit={async (event) => {

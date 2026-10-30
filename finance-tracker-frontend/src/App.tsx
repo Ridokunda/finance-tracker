@@ -6,11 +6,13 @@ import TransactionsPage from "./pages/TransactionsPage";
 import ProtectedRoute from "./components/ProtectedRoute";
 import Budgets from "./pages/Budgets";
 import CategoryRules from "./pages/CategoryRules";
+import RecurringBills from "./pages/RecurringBills";
 
 function App() {
   return (
     <Router>
       <Routes>
+        <Route path="/recurring" element={<ProtectedRoute><RecurringBills /></ProtectedRoute>} />
         <Route path="/rules" element={<ProtectedRoute><CategoryRules /></ProtectedRoute>} />
         <Route path="/budgets" element={<ProtectedRoute><Budgets /></ProtectedRoute>} />
         {/* Public routes */}
