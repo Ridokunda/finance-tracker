@@ -26,11 +26,13 @@ export default function StatementUploader({
   const [columns, setColumns] = useState<string[]>([]);
   const [page, setPage] = useState(0);
   const selected = preview?.rows.filter((r) => r.included) ?? [];
+  const invalidCount = preview?.rows.filter((row) => !!row.error).length ?? 0;
+  const duplicateCount = preview?.rows.filter((row) => row.possibleDuplicate).length ?? 0;
   return (
     <div className="statement-uploader">
       <p>
-        Generic CSV or text-based ABSA PDF · maximum 10 MB. PDF layout
-        verification is pending sanitized samples.
+        Generic CSV or supported text-based ABSA cheque PDF · maximum 10 MB.
+        Review transaction dates, amounts and reconciliation before confirming.
       </p>
       <label>
         Statement file
@@ -192,6 +194,12 @@ export default function StatementUploader({
               {notice}
             </p>
           ))}
+          <p>
+            {preview.rows.length} statement {preview.rows.length === 1 ? "entry" : "entries"} ·{" "}
+            {invalidCount} excluded by validation
+            {" · "}{duplicateCount} possible{" "}
+            {duplicateCount === 1 ? "duplicate" : "duplicates"}.
+          </p>
           <p>
             Possible duplicates start excluded. To retain a legitimate repeat,
             select Include and Keep duplicate. If another import has since added

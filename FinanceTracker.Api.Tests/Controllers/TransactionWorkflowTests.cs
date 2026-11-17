@@ -199,4 +199,57 @@ public class TransactionWorkflowTests
         Assert.IsType<OkObjectResult>(await controller.Confirm(batch.Id, new(decisions)));
         Assert.All(await db.Transactions.ToListAsync(), row => Assert.Equal("Food", row.Category));
     }
+
+    [Fact]
+    public async Task ChequePdfPreviewAndConfirmationPreserveRulesDuplicatesAndExcludedBalanceEntries()
+    {
+        await using var db = Database();
+        db.Transactions.Add(new() { UserId = 1, Date = new(2026, 10, 30), Amount = -74.50m,
+            Description = "Overseas Purchase Settlement Card No. 0000 Demo Store Cape Town (Effective 28/10/2026)", Category = "Shopping" });
+        db.CategorizationRules.Add(new() { UserId = 1, Pattern = "Demo Store", Category = "Shopping" });
+        await db.SaveChangesAsync();
+        var controller = AsUser(new StatementController(db, new StatementParser(), new Classifier(null), new MonthlyAnalytics(db)));
+        using var source = new MemoryStream(ChequePdfFixture.Example());
+        Assert.IsType<OkObjectResult>(await controller.Preview(new FormFile(source, 0, source.Length, "file", "cheque.pdf")));
+        var batch = await db.ImportBatches.Include(b => b.Rows).SingleAsync();
+        Assert.Equal(new DateTime(2026, 10, 17), batch.StatementStart);
+        Assert.Equal(7, batch.Rows.Count);
+        Assert.Single(await db.Transactions.ToListAsync()); // Preview never saves transactions.
+        var duplicate = Assert.Single(batch.Rows, row => row.PossibleDuplicate);
+        Assert.Equal("Shopping", duplicate.Category); Assert.False(duplicate.Included);
+        var information = Assert.Single(batch.Rows, row => row.Amount == 0);
+        Assert.NotNull(information.Error); Assert.False(information.Included);
+
+        var invalid = batch.Rows.Select(row => new StatementController.RowDecision(row.Id, row.Included || row.Id == information.Id, row.Category)).ToList();
+        Assert.IsType<BadRequestObjectResult>(await controller.Confirm(batch.Id, new(invalid)));
+        Assert.Single(await db.Transactions.ToListAsync());
+        var repeated = batch.Rows.Select(row => new StatementController.RowDecision(row.Id, row.Error == null, row.Category)).ToList();
+        Assert.IsType<ConflictObjectResult>(await controller.Confirm(batch.Id, new(repeated)));
+        Assert.Single(await db.Transactions.ToListAsync());
+        var decisions = batch.Rows.Select(row => new StatementController.RowDecision(row.Id, row.Error == null && !row.PossibleDuplicate, row.Category)).ToList();
+        Assert.Equal(5, Json(await controller.Confirm(batch.Id, new(decisions))).GetProperty("count").GetInt32());
+        Assert.Equal(5, Json(await controller.Confirm(batch.Id, new(decisions))).GetProperty("count").GetInt32());
+        var transactions = await db.Transactions.ToListAsync();
+        Assert.Equal(6, transactions.Count); Assert.DoesNotContain(transactions, row => row.Amount == 0);
+        Assert.Equal(1982.90m, transactions.Sum(row => row.Amount));
+    }
+
+    [Fact]
+    public async Task RepeatedChequePurchasesStartExcludedAndCanBeKeptExplicitly()
+    {
+        await using var db = Database();
+        using var source = new MemoryStream(ChequePdfFixture.Build([[
+            new("17/10/2026", "Bal Brought Forward", Balance: "250.00"),
+            new("1/11/2026", "Demo airtime", Debit: "55.00", Balance: "195.00"),
+            new("1/11/2026", "Demo airtime", Debit: "55.00", Balance: "140.00"),
+            new("1/11/2026", "Demo airtime", Debit: "55.00", Balance: "85.00")]]));
+        var controller = AsUser(new StatementController(db, new StatementParser(), new Classifier(null), new MonthlyAnalytics(db)));
+        Assert.IsType<OkObjectResult>(await controller.Preview(new FormFile(source, 0, source.Length, "file", "repeats.pdf")));
+        var batch = await db.ImportBatches.Include(b => b.Rows).SingleAsync();
+        Assert.Equal(2, batch.Rows.Count(row => row.PossibleDuplicate && !row.Included));
+        Assert.Single(batch.Rows, row => row.Included);
+        var decisions = batch.Rows.Select(row => new StatementController.RowDecision(row.Id, true, "Utilities", row.PossibleDuplicate)).ToList();
+        Assert.Equal(3, Json(await controller.Confirm(batch.Id, new(decisions))).GetProperty("count").GetInt32());
+        Assert.Equal(-165m, await db.Transactions.SumAsync(row => row.Amount));
+    }
 }
