@@ -248,4 +248,40 @@ public class SqlWorkflowTests(SqlDatabase database) : IClassFixture<SqlDatabase>
         Assert.Equal(batch.Rows[0].Id, (await db.Transactions.SingleAsync(t => t.Id == imported.Id)).ImportRowId);
         Assert.Equal(1250, (await new MonthlyAnalytics(db).Build(user, new(2026, 9, 1))).Spent);
     }
+
+    [SqlFact]
+    public async Task CategoryRolloverAndInsightsPersistAcrossConnections()
+    {
+        await using var setup = database.Open();
+        var user = await User(setup);
+        var other = await User(setup);
+        var budgets = AsUser(new BudgetController(setup, new MonthlyAnalytics(setup)), user);
+        Assert.IsType<OkObjectResult>(await budgets.SetBudget(new()
+        {
+            Year = 2026, Month = 8, LimitAmount = 4000,
+            CategoryLimits = [new("Maintenance", 1000, true)]
+        }));
+        setup.Transactions.AddRange(
+            new Transaction { UserId = user, Date = new(2026, 8, 5), Description = "POS PURCHASE AUTOZONE 0123", Amount = -300m, Category = "Maintenance" },
+            new Transaction { UserId = user, Date = new(2026, 9, 1), Description = "Salary", Amount = 10000m, Category = "Income" },
+            new Transaction { UserId = user, Date = new(2026, 9, 6), Description = "AutoZone #999", Amount = -1200m, Category = "Maintenance" },
+            new Transaction { UserId = other, Date = new(2026, 8, 5), Description = "Other user", Amount = -999m, Category = "Maintenance" }
+        );
+        await setup.SaveChangesAsync();
+        Assert.IsType<OkObjectResult>(await budgets.CopyPrevious(new(2026, 9)));
+
+        await using var read = database.Open();
+        var summary = await new MonthlyAnalytics(read).Build(user, new(2026, 9, 1));
+        var maintenance = summary.Categories.Single(c => c.Category == "Maintenance");
+        Assert.True(maintenance.RolloverEnabled);
+        Assert.Equal(700m, maintenance.RolloverAmount);
+        Assert.Equal(1700m, maintenance.EffectiveLimit);
+        Assert.Equal(500m, maintenance.Remaining);
+        Assert.Equal("Within budget", maintenance.Status);
+        Assert.Equal(88.0m, summary.SavingsRate);
+        Assert.Equal(900m, summary.Comparisons!.MonthOverMonth.Change);
+        var merchant = Assert.Single(summary.TopMerchants!);
+        Assert.Equal("AutoZone", merchant.Merchant);
+        Assert.Equal(300m, merchant.PreviousMonthSpent);
+    }
 }

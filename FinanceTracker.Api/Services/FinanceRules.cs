@@ -26,6 +26,22 @@ public static class FinanceRules
     }
     public static string Fingerprint(DateTime date, string description, decimal amount) =>
         $"{date:yyyy-MM-dd}|{Regex.Replace(description.Trim(), @"\s+", " ").ToUpperInvariant()}|{amount.ToString("F2", CultureInfo.InvariantCulture)}";
+
+    public static string MerchantName(string? description)
+    {
+        var collapsed = Regex.Replace(description?.Trim() ?? "", @"\s+", " ");
+        if (collapsed.Length == 0) return "Unknown merchant";
+        var cleaned = Regex.Replace(collapsed, @"^(?:POS PURCHASE|DEBIT CARD PURCHASE|CARD PURCHASE|EFT DEBIT|ACB DEBIT|DIRECT DEBIT|DEBIT ORDER)\s+", "", RegexOptions.IgnoreCase).Trim();
+        while (true)
+        {
+            var next = Regex.Replace(cleaned, @"(?:\s*(?:#|\*|REF[:\s]?|CARD\s*)\s*[A-Z0-9-]*\d[A-Z0-9-]*|\s+\d{3,})$", "", RegexOptions.IgnoreCase)
+                .TrimEnd(' ', '-', ',', ':', '/', '*');
+            if (next.Length == cleaned.Length || next.Length == 0 || !Regex.IsMatch(next, "[A-Za-z]")) break;
+            cleaned = next;
+        }
+        return cleaned.Length > 0 ? cleaned : collapsed;
+    }
+
     public static bool ValidMoney(decimal value) => value is >= -9999999999999999.99m and <= 9999999999999999.99m && decimal.Round(value, 2) == value;
 
     public static decimal TransactionAmount(decimal amount, string? type)

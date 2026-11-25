@@ -20,7 +20,7 @@ export default function TransactionsPage() {
   const [range, setRange] = useState(() => monthRange(initialMonth()));
   const [category, setCategory] = useState(() => new URLSearchParams(location.search).get("category") || "");
   const [type, setType] = useState("");
-  const [search, setSearch] = useState("");
+  const [search, setSearch] = useState(() => new URLSearchParams(location.search).get("search") || "");
   const [deleted, setDeleted] = useState(() => new URLSearchParams(location.search).get("view") === "deleted");
   const [transactions, setTransactions] = useState<Transaction[]>([]);
   const [selected, setSelected] = useState<number[]>([]);

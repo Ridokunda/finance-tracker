@@ -5,4 +5,5 @@ public class CategoryLimit
     public int MonthlyBudgetId { get; set; }
     public string Category { get; set; } = "Uncategorized";
     public decimal LimitAmount { get; set; }
+    public bool RolloverEnabled { get; set; }
 }

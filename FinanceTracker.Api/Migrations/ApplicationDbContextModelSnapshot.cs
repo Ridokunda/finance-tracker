@@ -144,6 +144,9 @@ namespace FinanceTracker.Api.Migrations
                     b.Property<int>("MonthlyBudgetId")
                         .HasColumnType("int");
 
+                    b.Property<bool>("RolloverEnabled")
+                        .HasColumnType("bit");
+
                     b.HasKey("Id");
 
                     b.HasIndex("MonthlyBudgetId", "Category")

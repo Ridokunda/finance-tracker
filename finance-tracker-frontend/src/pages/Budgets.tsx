@@ -8,14 +8,15 @@ import BudgetWarnings from "../components/BudgetWarnings";
 import BudgetWarningSettings from "../components/BudgetWarningSettings";
 import "../pages/Dashboard.css";
 import "./Planning.css";
+import "../components/Insights.css";
 export default function Budgets() {
   const [month, setMonth] = useState(initialMonth);
   const loadRevision = useRef(0);
   const [summary, setSummary] = useState<MonthlySummary | null>(null);
   const [overall, setOverall] = useState("");
-  const [limits, setLimits] = useState<{ category: string; amount: string }[]>(
-    [],
-  );
+  const [limits, setLimits] = useState<
+    { category: string; amount: string; rolloverEnabled: boolean }[]
+  >([]);
   const [category, setCategory] = useState("Groceries");
   const [error, setError] = useState("");
   const [status, setStatus] = useState("");
@@ -34,7 +35,11 @@ export default function Budgets() {
       setLimits(
         data.categories
           .filter((c) => c.limit !== null)
-          .map((c) => ({ category: c.category, amount: String(c.limit) })),
+          .map((c) => ({
+            category: c.category,
+            amount: String(c.limit),
+            rolloverEnabled: !!c.rolloverEnabled,
+          })),
       );
     } catch (error) {
       if (revision === loadRevision.current) setError((error as Error).message);
@@ -59,8 +64,9 @@ export default function Budgets() {
           <MonthSelector month={month} onChange={setMonth} disabled={busy} />
         </div>
         <p>
-          Allocate category limits within your overall monthly limit. Unused
-          funds do not roll over.
+          Allocate category limits within your overall monthly limit. Enable
+          rollover on individual categories to carry unused funds into the next
+          month.
         </p>
         {error && (
           <p role="alert" className="dashboard-error">
@@ -94,6 +100,7 @@ export default function Budgets() {
                       categoryLimits: limits.map((c) => ({
                         category: c.category,
                         limitAmount: Number(c.amount),
+                        rolloverEnabled: c.rolloverEnabled,
                       })),
                     }),
                   });
@@ -147,6 +154,23 @@ export default function Budgets() {
                       }
                     />
                   </label>
+                  <label className="planning-checkbox rollover-toggle">
+                    <input
+                      type="checkbox"
+                      aria-label={`Roll over unused funds for ${limit.category}`}
+                      checked={limit.rolloverEnabled}
+                      onChange={(e) =>
+                        setLimits(
+                          limits.map((c, i) =>
+                            i === index
+                              ? { ...c, rolloverEnabled: e.target.checked }
+                              : c,
+                          ),
+                        )
+                      }
+                    />
+                    Roll over unused funds
+                  </label>
                   <button
                     type="button"
                     className="secondary-btn"
@@ -171,7 +195,10 @@ export default function Budgets() {
                     (c) => c.category.toLowerCase() === category.toLowerCase(),
                   )}
                   onClick={() =>
-                    setLimits([...limits, { category, amount: "" }])
+                    setLimits([
+                      ...limits,
+                      { category, amount: "", rolloverEnabled: false },
+                    ])
                   }
                 >
                   Add category limit
@@ -227,35 +254,93 @@ export default function Budgets() {
               {summary.categories.length === 0 && (
                 <p>No category spending or limits for this month.</p>
               )}
-              {summary.categories.map((c) => (
-                <article className="category-progress" key={c.category}>
-                  <a
-                    href={`/transactions?month=${month}&category=${encodeURIComponent(c.category)}`}
-                  >
-                    {c.category}
-                  </a>
-                  <p>
-                    {currency(c.spent)} spent ·{" "}
-                    {c.limit === null
-                      ? "No limit set"
-                      : `${currency(c.limit)} limit · ${currency(c.remaining!)} remaining`}
-                  </p>
-                  <strong
-                    className={
-                      c.status === "Over budget" ? "amount-expense" : ""
-                    }
-                  >
-                    {c.status}
-                  </strong>
-                  {c.limit !== null && (
-                    <progress
-                      aria-label={`${c.category} budget used`}
-                      max={Math.max(c.limit, 1)}
-                      value={Math.min(c.spent, Math.max(c.limit, 1))}
-                    />
-                  )}
-                </article>
-              ))}
+              {summary.categories.map((c) => {
+                const effectiveLimit = c.effectiveLimit ?? c.limit;
+                const rolloverAmount = c.rolloverAmount ?? 0;
+                const momChange = c.monthOverMonthChange;
+                const yoyChange = c.yearOverYearChange;
+                return (
+                  <article className="category-progress" key={c.category}>
+                    <a
+                      href={`/transactions?month=${month}&category=${encodeURIComponent(c.category)}`}
+                    >
+                      {c.category}
+                    </a>
+                    {c.rolloverEnabled && (
+                      <span className="rollover-badge">Rollover enabled</span>
+                    )}
+                    <p>
+                      {currency(c.spent)} spent ·{" "}
+                      {c.limit === null
+                        ? "No limit set"
+                        : rolloverAmount > 0
+                          ? `${currency(c.limit)} limit + ${currency(rolloverAmount)} rollover = ${currency(effectiveLimit!)} available · ${currency(c.remaining!)} remaining`
+                          : `${currency(c.limit)} limit · ${currency(c.remaining!)} remaining`}
+                    </p>
+                    {(momChange !== null && momChange !== undefined) ||
+                    (yoyChange !== null && yoyChange !== undefined) ? (
+                      <div className="category-deltas">
+                        {momChange !== null && momChange !== undefined && (
+                          <span
+                            className={`delta-pill ${
+                              momChange > 0
+                                ? "delta-up"
+                                : momChange < 0
+                                  ? "delta-down"
+                                  : "delta-neutral"
+                            }`}
+                          >
+                            {(c.previousMonthSpent ?? 0) === 0 && momChange > 0
+                              ? "New vs last month"
+                              : momChange === 0
+                                ? "Same as last month"
+                                : `${momChange > 0 ? "▲ +" : "▼ -"}${currency(Math.abs(momChange))}${
+                                    c.monthOverMonthPercent !== null &&
+                                    c.monthOverMonthPercent !== undefined
+                                      ? ` (${c.monthOverMonthPercent > 0 ? "+" : ""}${c.monthOverMonthPercent.toFixed(1)}%)`
+                                      : ""
+                                  } vs last mo`}
+                          </span>
+                        )}
+                        {yoyChange !== null && yoyChange !== undefined && (c.previousYearSpent ?? 0) > 0 && (
+                          <span
+                            className={`delta-pill ${
+                              yoyChange > 0
+                                ? "delta-up"
+                                : yoyChange < 0
+                                  ? "delta-down"
+                                  : "delta-neutral"
+                            }`}
+                          >
+                            {yoyChange === 0
+                              ? "Same as last year"
+                              : `${yoyChange > 0 ? "▲ +" : "▼ -"}${currency(Math.abs(yoyChange))}${
+                                  c.yearOverYearPercent !== null &&
+                                  c.yearOverYearPercent !== undefined
+                                    ? ` (${c.yearOverYearPercent > 0 ? "+" : ""}${c.yearOverYearPercent.toFixed(1)}%)`
+                                    : ""
+                                } YoY`}
+                          </span>
+                        )}
+                      </div>
+                    ) : null}
+                    <strong
+                      className={
+                        c.status === "Over budget" ? "amount-expense" : ""
+                      }
+                    >
+                      {c.status}
+                    </strong>
+                    {effectiveLimit !== null && (
+                      <progress
+                        aria-label={`${c.category} budget used`}
+                        max={Math.max(effectiveLimit, 1)}
+                        value={Math.min(c.spent, Math.max(effectiveLimit, 1))}
+                      />
+                    )}
+                  </article>
+                );
+              })}
             </section>
           </>
         )}

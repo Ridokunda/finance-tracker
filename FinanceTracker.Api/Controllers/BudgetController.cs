@@ -36,7 +36,7 @@ public class BudgetController(ApplicationDbContext db, MonthlyAnalytics analytic
         if (request.LimitAmount < 0 || !FinanceRules.ValidMoney(request.LimitAmount)) return BadRequest("Enter a non-negative limit with at most two decimal places.");
         var budget = await db.MonthlyBudgets.Include(b => b.CategoryLimits).SingleOrDefaultAsync(b => b.UserId == UserId && b.Year == start.Year && b.Month == start.Month);
         var existingNames = await db.Transactions.Where(t => t.UserId == UserId).Select(t => t.Category).Distinct().ToListAsync();
-        var limits = request.CategoryLimits ?? budget?.CategoryLimits.Select(c => new LimitRequest(c.Category, c.LimitAmount)).ToList() ?? [];
+        var limits = request.CategoryLimits ?? budget?.CategoryLimits.Select(c => new LimitRequest(c.Category, c.LimitAmount, c.RolloverEnabled)).ToList() ?? [];
         try { limits = limits.Select(c => c with { Category = FinanceRules.Category(c.Category, existingNames) }).ToList(); }
         catch (ArgumentException ex) { return BadRequest(ex.Message); }
         if (limits.Any(c => c.LimitAmount < 0 || !FinanceRules.ValidMoney(c.LimitAmount)) || limits.Sum(c => c.LimitAmount) > request.LimitAmount)
@@ -56,10 +56,14 @@ public class BudgetController(ApplicationDbContext db, MonthlyAnalytics analytic
         {
             var replacement = limits.FirstOrDefault(c => c.Category.Equals(old.Category, StringComparison.OrdinalIgnoreCase));
             if (replacement == null) db.CategoryLimits.Remove(old);
-            else old.LimitAmount = replacement.LimitAmount;
+            else
+            {
+                old.LimitAmount = replacement.LimitAmount;
+                old.RolloverEnabled = replacement.RolloverEnabled;
+            }
         }
         foreach (var limit in limits.Where(c => !budget.CategoryLimits.Any(old => old.Category.Equals(c.Category, StringComparison.OrdinalIgnoreCase))))
-            budget.CategoryLimits.Add(new CategoryLimit { Category = limit.Category, LimitAmount = limit.LimitAmount });
+            budget.CategoryLimits.Add(new CategoryLimit { Category = limit.Category, LimitAmount = limit.LimitAmount, RolloverEnabled = limit.RolloverEnabled });
         try { await db.SaveChangesAsync(); }
         catch (DbUpdateException) { return Conflict("This month changed concurrently. Reload and try again."); }
         return Ok(await analytics.Build(UserId, start));
@@ -75,10 +79,10 @@ public class BudgetController(ApplicationDbContext db, MonthlyAnalytics analytic
         if (source == null) return NotFound("The previous month has no budget to copy.");
         if (source.NeedsReconfirmation) return Conflict("Reconfirm the previous month's limit before copying it.");
         return await SetBudget(new SetBudgetRequest { Year = start.Year, Month = start.Month, LimitAmount = source.LimitAmount,
-            CategoryLimits = source.CategoryLimits.Select(c => new LimitRequest(c.Category, c.LimitAmount)).ToList() });
+            CategoryLimits = source.CategoryLimits.Select(c => new LimitRequest(c.Category, c.LimitAmount, c.RolloverEnabled)).ToList() });
     }
     public record MonthRequest(int? Year, int? Month);
-    public record LimitRequest(string Category, decimal LimitAmount);
+    public record LimitRequest(string Category, decimal LimitAmount, bool RolloverEnabled = false);
     public class SetBudgetRequest
     {
         public int? Year { get; set; }

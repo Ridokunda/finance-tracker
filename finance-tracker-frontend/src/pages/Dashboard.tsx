@@ -17,7 +17,12 @@ import Dialog from "../components/Dialog";
 import NetCashFlowCard from "../components/NetCashFlowCard";
 import BudgetWarnings from "../components/BudgetWarnings";
 import UpcomingBillsCard from "../components/UpcomingBillsCard";
+import CategoryBreakdownCard from "../components/CategoryBreakdownCard";
+import SpendingTrendsCard from "../components/SpendingTrendsCard";
+import TopMerchantsCard from "../components/TopMerchantsCard";
+import SavingsRateCard from "../components/SavingsRateCard";
 import "./Planning.css";
+import "../components/Insights.css";
 
 const EMPTY_BUDGET: BudgetSummary = {
   budget: 0,
@@ -26,7 +31,6 @@ const EMPTY_BUDGET: BudgetSummary = {
   status: "ok"
 };
 
-const CATEGORY_COLORS = ["#34d399", "#60a5fa", "#7c3aed", "#f97316", "#eab308", "#94a3b8"];
 function readToken(): string {
   try {
     return localStorage.getItem("token") || "";
@@ -100,27 +104,15 @@ export default function Dashboard() {
     void loadDashboard();
   }, [loadDashboard]);
 
-  const currentMonthExpenseTotal = monthly?.spent ?? 0;
-  const categoryBreakdown = (monthly?.categories ?? []).filter(c => c.spent > 0).map((c, index) => ({
-    name: c.category, total: c.spent, percentage: currentMonthExpenseTotal ? c.spent / currentMonthExpenseTotal * 100 : 0,
-    color: CATEGORY_COLORS[index % CATEGORY_COLORS.length]
-  }));
-  const trendData = (monthly?.trends ?? []).map(t => ({ key: t.month, label: t.month, expenses: t.expenses, income: t.income }));
-
   const recentTransactions = transactions.slice(0, 5);
-  const trendMax = Math.max(
-    1,
-    ...trendData.flatMap((month) => [month.expenses, month.income])
-  );
-  const trendHasData = trendData.some((month) => month.expenses > 0 || month.income > 0);
-
-  const trendPoints = (field: "expenses" | "income") => trendData
-    .map((month, index) => {
-      const x = 12 + (index / Math.max(1, trendData.length - 1)) * 296;
-      const y = 108 - (month[field] / trendMax) * 92;
-      return `${x},${y}`;
-    })
-    .join(" ");
+  const momSpending = monthly?.comparisons?.monthOverMonth;
+  const yoySpending = monthly?.comparisons?.yearOverYear;
+  const derivedSavingsRate =
+    monthly?.savingsRate !== undefined
+      ? monthly.savingsRate
+      : monthly && monthly.income > 0
+        ? Math.round(((monthly.income - monthly.spent) / monthly.income) * 1000) / 10
+        : null;
 
   const handleClassify = async (event: FormEvent<HTMLFormElement>) => {
     event.preventDefault();
@@ -179,59 +171,59 @@ export default function Dashboard() {
               <div className="card-sub" style={{ color: budgetSummary.status === "over" ? "#ef4444" : "#6b7280" }}>
                 {loading ? "Loading spending..." : budgetSummary.status === "over" ? "Over budget" : "Tracked so far"}
               </div>
+              {!loading && (momSpending || yoySpending) && (
+                <div className="spending-deltas">
+                  {momSpending && (momSpending.previous > 0 || budgetSummary.spent > 0) && (
+                    <span
+                      className={`delta-pill ${
+                        momSpending.change > 0
+                          ? "delta-up"
+                          : momSpending.change < 0
+                            ? "delta-down"
+                            : "delta-neutral"
+                      }`}
+                    >
+                      {momSpending.previous === 0 && momSpending.change > 0
+                        ? "New vs last mo"
+                        : momSpending.change === 0
+                          ? "0% vs last mo"
+                          : `${momSpending.change > 0 ? "▲ +" : "▼ "}${momSpending.changePercent?.toFixed(1) ?? "0.0"}% vs last mo`}
+                    </span>
+                  )}
+                  {yoySpending && yoySpending.previous > 0 && yoySpending.changePercent !== null && (
+                    <span
+                      className={`delta-pill ${
+                        yoySpending.change > 0
+                          ? "delta-up"
+                          : yoySpending.change < 0
+                            ? "delta-down"
+                            : "delta-neutral"
+                      }`}
+                    >
+                      {yoySpending.change === 0
+                        ? "0% YoY"
+                        : `${yoySpending.change > 0 ? "▲ +" : "▼ "}${yoySpending.changePercent.toFixed(1)}% YoY`}
+                    </span>
+                  )}
+                </div>
+              )}
             </section>
+
+            <SavingsRateCard
+              income={monthly?.income ?? 0}
+              netCashFlow={monthly?.netCashFlow ?? 0}
+              savingsRate={derivedSavingsRate}
+              previousMonthSavingsRate={monthly?.previousMonthSavingsRate ?? null}
+              loading={loading}
+            />
           </div>
 
-          <section className="card">
-            <div className="card-title">Expense Breakdown by Category</div>
-            {loading ? (
-              <div className="empty-tile">Loading category data...</div>
-            ) : categoryBreakdown.length === 0 ? (
-              <div className="empty-tile">No expenses recorded this month.</div>
-            ) : (
-              <div className="donut-wrap">
-                <div className="donut">
-                  <svg viewBox="0 0 120 120" role="img" aria-label="Expense breakdown by category">
-                    <circle cx="60" cy="60" r="54" fill="none" stroke="#e2e8f0" strokeWidth="18" />
-                    {categoryBreakdown.map((category, index) => {
-                      const offset = categoryBreakdown
-                        .slice(0, index)
-                        .reduce((sum, item) => sum + item.percentage, 0) / 100 * 339.292;
-                      return (
-                        <circle
-                          key={category.name}
-                          cx="60"
-                          cy="60"
-                          r="54"
-                          fill="none"
-                          stroke={category.color}
-                          strokeWidth="18"
-                          strokeDasharray={`${category.percentage / 100 * 339.292} 339.292`}
-                          strokeDashoffset={-offset}
-                          transform="rotate(-90 60 60)"
-                        />
-                      );
-                    })}
-                  </svg>
-                  <div className="donut-center">
-                    <strong>{formatCurrency(currentMonthExpenseTotal)}</strong>
-                    <span>{month}</span>
-                  </div>
-                </div>
-                <div className="legend">
-                  {categoryBreakdown.map((category) => (
-                    <div className="legend-item" key={category.name}>
-                      <div className="legend-dot" style={{ background: category.color }} />
-                      <div>
-                        <a className="legend-name" href={`/transactions?month=${month}&category=${encodeURIComponent(category.name)}`}>{category.name}</a>
-                        <div className="small">{category.percentage.toFixed(1)}% · {formatCurrency(category.total)}</div>
-                      </div>
-                    </div>
-                  ))}
-                </div>
-              </div>
-            )}
-          </section>
+          <CategoryBreakdownCard
+            month={month}
+            categories={monthly?.categories ?? []}
+            totalSpent={monthly?.spent ?? 0}
+            loading={loading}
+          />
 
           <NetCashFlowCard refreshKey={cashFlowRevision} />
           <section className="card">
@@ -308,41 +300,17 @@ export default function Dashboard() {
             )}
           </section>
 
-          <section className="card">
-            <div className="card-title">Spending Trends <span className="small">· last 6 months</span></div>
-            <div className="chart" aria-label="Spending trends for the last six months">
-              {loading ? (
-                <div className="empty-chart">Loading trend data...</div>
-              ) : trendHasData ? (
-                <svg viewBox="0 0 320 140" preserveAspectRatio="none" role="img">
-                  <line x1="12" y1="108" x2="308" y2="108" stroke="#e2e8f0" strokeWidth="1" />
-                  <line x1="12" y1="62" x2="308" y2="62" stroke="#f1f5f9" strokeWidth="1" />
-                  <polyline fill="none" stroke="#60a5fa" strokeWidth="3" points={trendPoints("expenses")} />
-                  <polyline fill="none" stroke="#10b981" strokeWidth="2.5" points={trendPoints("income")} />
-                  {trendData.map((month, index) => {
-                    const x = 12 + (index / Math.max(1, trendData.length - 1)) * 296;
-                    const expenseY = 108 - (month.expenses / trendMax) * 92;
-                    const incomeY = 108 - (month.income / trendMax) * 92;
-                    return (
-                      <g key={month.key}>
-                        <circle cx={x} cy={expenseY} r="3" fill="#60a5fa" />
-                        <circle cx={x} cy={incomeY} r="3" fill="#10b981" />
-                      </g>
-                    );
-                  })}
-                </svg>
-              ) : (
-                <div className="empty-chart">No income or expense history yet.</div>
-              )}
-              <div className="trend-labels">
-                {trendData.map((month) => <span key={month.key}>{month.label}</span>)}
-              </div>
-              <div className="trend-legend">
-                <span><i className="trend-line expense-line" /> Expenses</span>
-                <span><i className="trend-line income-line" /> Income</span>
-              </div>
-            </div>
-          </section>
+          <SpendingTrendsCard
+            trends={monthly?.trends ?? []}
+            selectedMonth={month}
+            loading={loading}
+          />
+
+          <TopMerchantsCard
+            month={month}
+            merchants={monthly?.topMerchants ?? []}
+            loading={loading}
+          />
 
           {dataError && <div className="dashboard-error" role="alert">{dataError} <button onClick={loadDashboard}>Retry</button></div>}
         </div>

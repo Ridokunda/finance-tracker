@@ -58,6 +58,25 @@ export async function api<T>(path: string, init: RequestInit = {}): Promise<T> {
   }
   return text ? (JSON.parse(text) as T) : (undefined as T);
 }
+export type PeriodDelta = {
+  previous: number;
+  change: number;
+  changePercent: number | null;
+};
+export type SpendingComparisons = {
+  monthOverMonth: PeriodDelta;
+  yearOverYear: PeriodDelta;
+};
+export type MerchantTotal = {
+  merchant: string;
+  searchQuery: string;
+  primaryCategory: string;
+  spent: number;
+  transactionCount: number;
+  sharePercent: number;
+  previousMonthSpent: number;
+  monthOverMonthChange: number | null;
+};
 export type CategoryTotal = {
   category: string;
   limit: number | null;
@@ -65,6 +84,22 @@ export type CategoryTotal = {
   remaining: number | null;
   progress: number | null;
   status: string;
+  rolloverEnabled?: boolean;
+  rolloverAmount?: number;
+  effectiveLimit?: number | null;
+  previousMonthSpent?: number;
+  monthOverMonthChange?: number | null;
+  monthOverMonthPercent?: number | null;
+  previousYearSpent?: number;
+  yearOverYearChange?: number | null;
+  yearOverYearPercent?: number | null;
+};
+export type TrendPoint = {
+  month: string;
+  income: number;
+  expenses: number;
+  netCashFlow?: number;
+  savingsRate?: number | null;
 };
 export type MonthlySummary = {
   year: number;
@@ -78,9 +113,13 @@ export type MonthlySummary = {
   income: number;
   netCashFlow: number;
   categories: CategoryTotal[];
-  trends: { month: string; income: number; expenses: number }[];
+  trends: TrendPoint[];
   warningSettings: { enabled: boolean; thresholdPercent: number };
   warnings: BudgetWarning[];
+  savingsRate?: number | null;
+  previousMonthSavingsRate?: number | null;
+  comparisons?: SpendingComparisons | null;
+  topMerchants?: MerchantTotal[];
 };
 export type BudgetWarning = { scope: string; category: string | null; limit: number; spent: number; percentUsed: number | null; level: "approaching" | "reached" | "over" };
 export const analytics = (month: string) =>
